@@ -1,0 +1,378 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { MessageCircle, Send, X, Bot, User } from 'lucide-react';
+
+interface Message {
+  id: string;
+  text: string;
+  sender: 'user' | 'ai';
+  timestamp: number;
+}
+
+interface FloatingButtonProps {
+  onPositionChange?: (x: number, y: number) => void;
+  initialPosition?: { x: number; y: number };
+}
+
+const FloatingButton: React.FC<FloatingButtonProps> = () => {
+  // 所有 useState hooks 必须在顶层
+  const [isExpanded, setIsExpanded] = useState(() => {
+    try {
+      const savedState = (window as any).__FLOATING_EXPANDED__ || false;
+      console.log('FloatingButton: 从全局变量恢复展开状态:', savedState);
+      return savedState;
+    } catch (e) {
+      console.error('FloatingButton: 恢复状态失败:', e);
+      return false;
+    }
+  });
+
+  const [messages, setMessages] = useState<Message[]>(() => {
+    try {
+      return (window as any).__FLOATING_MESSAGES__ || [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const [inputText, setInputText] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // 所有 useRef hooks 必须在顶层
+  const buttonRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
+
+  // 所有 useEffect hooks 必须在顶层
+
+  // 1. 背景控制 useEffect
+  useEffect(() => {
+    if (isExpanded) {
+      console.log('FloatingButton: 展开状态 - 设置黑色背景');
+      document.documentElement.style.background = 'black';
+      document.body.style.background = 'black';
+      const root = document.getElementById('floating-root');
+      if (root) root.style.background = 'black';
+    } else {
+      console.log('FloatingButton: 收起状态 - 恢复红色背景');
+      document.documentElement.style.background = '#FF0000';
+      document.body.style.background = '#FF0000';
+      const root = document.getElementById('floating-root');
+      if (root) root.style.background = '#FF0000';
+    }
+  }, [isExpanded]);
+
+  // 2. 状态持久化 useEffect
+  useEffect(() => {
+    try {
+      (window as any).__FLOATING_EXPANDED__ = isExpanded;
+      console.log('FloatingButton: 保存展开状态到全局变量:', isExpanded);
+    } catch (e) {
+      console.error('FloatingButton: 保存状态失败:', e);
+    }
+  }, [isExpanded]);
+
+  // 3. 消息持久化 useEffect
+  useEffect(() => {
+    try {
+      (window as any).__FLOATING_MESSAGES__ = messages;
+      console.log('FloatingButton: 保存聊天消息到全局变量，消息数量:', messages.length);
+    } catch (e) {
+      console.error('FloatingButton: 保存消息失败:', e);
+    }
+  }, [messages]);
+
+  // 4. 初始化欢迎消息 useEffect
+  useEffect(() => {
+    console.log('FloatingButton: 检查是否需要初始化欢迎消息');
+    const existingMessages = (window as any).__FLOATING_MESSAGES__ || [];
+    if (existingMessages.length === 0) {
+      console.log('FloatingButton: 没有持久化消息，添加欢迎消息');
+      const welcomeMessage: Message = {
+        id: 'welcome',
+        text: '你好！我是AI助手，有什么可以帮助您的吗？',
+        sender: 'ai',
+        timestamp: Date.now(),
+      };
+      setMessages([welcomeMessage]);
+      console.log('FloatingButton: 欢迎消息已设置');
+    }
+  }, []);
+
+  // 5. 窗口大小恢复 useEffect
+  useEffect(() => {
+    console.log('FloatingButton: AI聊天组件挂载完成');
+    const savedState = (window as any).__FLOATING_EXPANDED__;
+    if (savedState) {
+      console.log('FloatingButton: 检测到保存的展开状态，恢复窗口大小');
+      (window as any).electronAPI?.resizeFloatingWindow?.(800, 600);
+    }
+  }, []);
+
+  // 6. 输入框聚焦 useEffect
+  useEffect(() => {
+    if (isExpanded && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isExpanded]);
+
+  // 7. 消息滚动 useEffect
+  useEffect(() => {
+    if (messagesRef.current) {
+      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  // 8. 键盘事件 useEffect
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isExpanded) return;
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleSubmit();
+      }
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isExpanded, inputText]);
+
+  // 事件处理函数
+  const handleMouseDown = (e: React.MouseEvent) => {
+    console.log('FloatingButton: 鼠标按下');
+    if (isExpanded) return;
+
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let hasMoved = false;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaX = e.clientX - startX;
+      const deltaY = e.clientY - startY;
+
+      if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
+        hasMoved = true;
+        setIsDragging(true);
+        console.log('FloatingButton: 拖拽中');
+        (window as any).electronAPI?.moveFloatingWindow?.(
+          e.screenX - 30,
+          e.screenY - 30
+        );
+      }
+    };
+
+    const handleMouseUp = () => {
+      console.log('FloatingButton: 鼠标释放，hasMoved:', hasMoved);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+
+      setIsDragging(false);
+
+      if (!hasMoved) {
+        console.log('FloatingButton: 点击展开');
+        setIsExpanded(true);
+        console.log('FloatingButton: isExpanded 设置为 true');
+        console.log('FloatingButton: messages 长度:', messages.length);
+        console.log('FloatingButton: 准备调整窗口大小到全屏');
+        (window as any).electronAPI?.resizeFloatingWindow?.(800, 600);
+        console.log('FloatingButton: 窗口大小调整请求已发送');
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleClose = () => {
+    setIsExpanded(false);
+    setInputText('');
+    (window as any).electronAPI?.resizeFloatingWindow?.(60, 60);
+  };
+
+  const handleSubmit = async () => {
+    if (!inputText.trim() || isSubmitting) return;
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      text: inputText.trim(),
+      sender: 'user',
+      timestamp: Date.now(),
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInputText('');
+    setIsSubmitting(true);
+
+    try {
+      const aiResponse = await generateAIResponse(userMessage.text);
+
+      const aiMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: aiResponse,
+        sender: 'ai',
+        timestamp: Date.now(),
+      };
+
+      setMessages(prev => [...prev, aiMessage]);
+    } catch (error) {
+      console.error('Failed to get AI response:', error);
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: '抱歉，我遇到了一些问题。请稍后再试。',
+        sender: 'ai',
+        timestamp: Date.now(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const generateAIResponse = async (userInput: string): Promise<string> => {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    const responses = [
+      '我理解您的问题，让我来帮助您。',
+      '这是一个很好的问题，我来为您解答。',
+      '根据您的描述，我建议您考虑以下几点...',
+      '感谢您的提问，这里是我的建议：',
+      '我很乐意帮助您解决这个问题。',
+    ];
+
+    return responses[Math.floor(Math.random() * responses.length)] +
+           `\n\n您提到：${userInput}\n\n这确实是需要仔细考虑的问题。`;
+  };
+
+  // 渲染逻辑
+  if (isExpanded) {
+    console.log('FloatingButton: 渲染展开界面，messages:', messages);
+    return (
+      <div style={{
+        position: 'fixed',
+        left: 0,
+        top: 0,
+        width: '100vw',
+        height: '100vh',
+        background: 'black',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 99999,
+        pointerEvents: 'auto',
+        overflow: 'hidden'
+      }}>
+        {/* 极端可见测试元素 - 优化版本 */}
+        <div
+          onClick={handleClose}
+          style={{
+            position: 'absolute',
+            top: '10px',
+            left: '10px',
+            width: 'calc(100% - 20px)',
+            height: 'calc(100% - 20px)',
+            fontSize: '24px',  // 减小字体确保显示
+            color: 'white',
+            fontWeight: 'bold',
+            backgroundColor: 'black',
+            padding: '20px',
+            border: '5px solid lime',
+            outline: '3px solid orange',
+            textShadow: '2px 2px 4px red',
+            zIndex: 999999,
+            display: 'flex',
+            alignItems: 'flex-start',  // 顶部对齐确保可见
+            justifyContent: 'flex-start',  // 左对齐确保可见
+            flexDirection: 'column',
+            textAlign: 'left',
+            cursor: 'pointer',
+            overflow: 'visible'
+          }}>
+          <div style={{
+            background: 'red',
+            color: 'white',
+            padding: '10px',
+            marginBottom: '10px',
+            fontSize: '20px',
+            border: '2px solid yellow'
+          }}>
+            🚀 REACT 成功运行! 🚀
+          </div>
+          <div style={{
+            background: 'blue',
+            color: 'white',
+            padding: '10px',
+            marginBottom: '10px',
+            fontSize: '18px'
+          }}>
+            AI聊天界面正常加载
+          </div>
+          <div style={{
+            background: 'green',
+            color: 'white',
+            padding: '10px',
+            marginBottom: '10px',
+            fontSize: '16px'
+          }}>
+            消息数量: {messages.length}
+          </div>
+          <div style={{
+            background: 'purple',
+            color: 'yellow',
+            padding: '10px',
+            fontSize: '14px',
+            marginTop: 'auto'
+          }}>
+            👆 点击任意位置关闭界面 👆
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 收起状态的按钮
+  return (
+    <div
+      ref={buttonRef}
+      onMouseDown={handleMouseDown}
+      style={{
+        width: '100%',
+        height: '100%',
+        borderRadius: '50%',
+        background: 'linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%)',
+        border: '3px solid rgba(255,255,255,0.3)',
+        boxShadow: '0 10px 25px rgba(59,130,246,0.3)',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        pointerEvents: 'auto',
+        transition: 'all 0.3s ease',
+        position: 'relative'
+      }}
+      title="AI助手 - 点击展开聊天界面"
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = 'scale(1.1)';
+        e.currentTarget.style.boxShadow = '0 15px 35px rgba(59,130,246,0.4)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = 'scale(1)';
+        e.currentTarget.style.boxShadow = '0 10px 25px rgba(59,130,246,0.3)';
+      }}
+    >
+      <MessageCircle
+        style={{
+          width: '24px',
+          height: '24px',
+          color: 'white',
+          filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))'
+        }}
+      />
+    </div>
+  );
+};
+
+export default FloatingButton;

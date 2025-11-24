@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss: http: https:; font-src 'self' data:;" />
+    <title>Flowpad - 快速记录</title>
+    <style>
+      html {
+        background: transparent;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        overflow: hidden;
+      }
+      #floating-root {
+        width: 100vw;
+        height: 100vh;
+        background: transparent;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        /* 确保内容可见 */
+        position: relative;
+        z-index: 1;
+      }
+      /* 让按钮区域能够接收事件 */
+      .floating-button {
+        pointer-events: auto !important;
+        /* 确保按钮可见性 */
+        min-width: 60px;
+        min-height: 60px;
+        /* Debug: 临时背景色确保可见 */
+        box-shadow: 0 0 0 1px rgba(255, 0, 0, 0.3) !important;
+      }
+      * {
+        box-sizing: border-box;
+      }
+    </style>
+  </head>
+  <body class="floating-window">
+    <div id="floating-root"></div>
+    <script type="module" src="/src/floating.tsx"></script>
+  </body>
+</html>

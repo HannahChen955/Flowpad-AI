@@ -1,0 +1,45 @@
+{
+  "name": "@flowpad/app",
+  "version": "0.1.0",
+  "description": "Flowpad Electron main process",
+  "main": "dist/main.js",
+  "author": "ChenHan",
+  "scripts": {
+    "dev": "concurrently \"tsc --watch\" \"NODE_ENV=development electron dist/main.js\"",
+    "build": "tsc",
+    "start": "electron dist/main.js",
+    "dist": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "path": "^0.12.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "concurrently": "^7.6.0",
+    "electron": "^27.0.0",
+    "electron-builder": "^24.6.0",
+    "typescript": "^5.0.0"
+  },
+  "build": {
+    "appId": "com.flowpad.app",
+    "productName": "Flowpad",
+    "directories": {
+      "output": "../../dist"
+    },
+    "files": [
+      "dist/**/*",
+      "../renderer/dist/**/*",
+      "node_modules/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}

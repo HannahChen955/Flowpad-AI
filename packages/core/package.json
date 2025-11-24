@@ -1,0 +1,23 @@
+{
+  "name": "@flowpad/core",
+  "version": "0.1.0",
+  "description": "Flowpad core shared logic",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "active-win": "^8.2.1",
+    "better-sqlite3": "^8.7.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/active-win": "^4.0.0",
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/uuid": "^9.0.7",
+    "electron-rebuild": "^3.2.9",
+    "typescript": "^5.0.0"
+  }
+}

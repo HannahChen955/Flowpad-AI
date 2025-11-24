@@ -1,0 +1,25 @@
+{
+  "name": "flowpad",
+  "version": "0.1.0",
+  "description": "AI-powered context-aware notes capture tool",
+  "main": "packages/app/dist/main.js",
+  "author": "ChenHan",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:app\" \"npm run dev:renderer\"",
+    "dev:app": "cd packages/app && npm run dev",
+    "dev:renderer": "cd packages/renderer && npm run dev",
+    "build": "npm run build:core && npm run build:app && npm run build:renderer",
+    "build:core": "cd packages/core && npm run build",
+    "build:app": "cd packages/app && npm run build",
+    "build:renderer": "cd packages/renderer && npm run build",
+    "start": "cd packages/app && npm run start",
+    "dist": "npm run build && cd packages/app && npm run dist",
+    "install:all": "npm install && cd packages/app && npm install && cd ../renderer && npm install && cd ../core && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^7.6.0",
+    "typescript": "^5.0.0"
+  }
+}

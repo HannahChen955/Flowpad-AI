@@ -1,0 +1,370 @@
+import Database from 'better-sqlite3';
+import { v4 as uuidv4 } from 'uuid';
+import { Note, Settings, CreateNoteInput, Context, DatabaseConfig, SavedDigest } from './types';
+
+export class FlowpadDB {
+  private db: Database.Database;
+
+  constructor(config: DatabaseConfig) {
+    this.db = new Database(config.path);
+    this.initialize();
+  }
+
+  private initialize(): void {
+    // 创建notes表
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS notes (
+        id TEXT PRIMARY KEY,
+        text TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        app_name TEXT,
+        window_title TEXT,
+        url TEXT,
+        project_hint TEXT,
+        type_hint TEXT,
+        tags TEXT,
+        project_tag TEXT
+      );
+    `);
+
+    // 为现有的notes表添加tags列（如果不存在）
+    try {
+      this.db.exec(`ALTER TABLE notes ADD COLUMN tags TEXT;`);
+    } catch (error) {
+      // 列已存在，忽略错误
+    }
+
+    // 为现有的notes表添加project_tag列（如果不存在）
+    try {
+      this.db.exec(`ALTER TABLE notes ADD COLUMN project_tag TEXT;`);
+    } catch (error) {
+      // 列已存在，忽略错误
+    }
+
+    // 创建settings表
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
+
+    // 创建saved_digests表
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS saved_digests (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        saved_at TEXT NOT NULL
+      );
+    `);
+
+    // 创建索引以提高查询性能 - 优化版本
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_notes_created_at ON notes(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_notes_project_hint ON notes(project_hint);
+      CREATE INDEX IF NOT EXISTS idx_notes_type_hint ON notes(type_hint);
+      CREATE INDEX IF NOT EXISTS idx_notes_app_name ON notes(app_name);
+      CREATE INDEX IF NOT EXISTS idx_notes_date_created ON notes(date(created_at));
+      CREATE INDEX IF NOT EXISTS idx_notes_composite ON notes(project_hint, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_saved_digests_date ON saved_digests(date);
+      CREATE INDEX IF NOT EXISTS idx_saved_digests_saved_at ON saved_digests(saved_at DESC);
+    `);
+  }
+
+  // 创建笔记 - 优化版本
+  createNote(input: CreateNoteInput): Note {
+    const id = uuidv4();
+    const created_at = new Date().toISOString();
+    const project_hint = this.inferProjectHint(input.text, input.context);
+    const type_hint = input.type_hint || this.inferTypeHint(input.text);
+    const tags = input.tags || [];
+    const tagsJson = tags.length > 0 ? JSON.stringify(tags) : null;
+
+    // 从tags中提取项目标签（第一个标签作为项目标签）
+    const project_tag = tags.length > 0 ? tags[0] : null;
+
+    const note: Note = {
+      id,
+      text: input.text,
+      created_at,
+      app_name: input.context?.app_name,
+      window_title: input.context?.window_title,
+      url: input.context?.url,
+      project_hint,
+      type_hint,
+      tags,
+      project_tag: project_tag || undefined,
+    };
+
+    const stmt = this.getOrCreateStatement(
+      'createNote',
+      'INSERT INTO notes (id, text, created_at, app_name, window_title, url, project_hint, type_hint, tags, project_tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+
+    stmt.run(
+      note.id,
+      note.text,
+      note.created_at,
+      note.app_name,
+      note.window_title,
+      note.url,
+      note.project_hint,
+      note.type_hint,
+      tagsJson,
+      project_tag
+    );
+
+    return note;
+  }
+
+  // 缓存预编译语句以提高性能
+  private preparedStatements: Map<string, Database.Statement> = new Map();
+
+  private getOrCreateStatement(key: string, sql: string): Database.Statement {
+    if (!this.preparedStatements.has(key)) {
+      this.preparedStatements.set(key, this.db.prepare(sql));
+    }
+    return this.preparedStatements.get(key)!;
+  }
+
+  // 获取所有笔记 - 优化版本
+  getNotes(limit?: number, offset?: number): Note[] {
+    // 使用预编译语句缓存提高性能
+    let rows: any[];
+    if (limit && offset) {
+      const stmt = this.getOrCreateStatement(
+        'getNotes_limit_offset',
+        'SELECT * FROM notes ORDER BY created_at DESC LIMIT ? OFFSET ?'
+      );
+      rows = stmt.all(limit, offset);
+    } else if (limit) {
+      const stmt = this.getOrCreateStatement(
+        'getNotes_limit',
+        'SELECT * FROM notes ORDER BY created_at DESC LIMIT ?'
+      );
+      rows = stmt.all(limit);
+    } else {
+      const stmt = this.getOrCreateStatement(
+        'getNotes_all',
+        'SELECT * FROM notes ORDER BY created_at DESC'
+      );
+      rows = stmt.all();
+    }
+
+    return rows.map(row => this.parseNoteRow(row));
+  }
+
+  // 解析数据库行为Note对象
+  private parseNoteRow(row: any): Note {
+    return {
+      ...row,
+      tags: row.tags ? JSON.parse(row.tags) : [],
+      project_tag: row.project_tag || undefined
+    };
+  }
+
+  // 获取今天的笔记 - 优化版本
+  getTodayNotes(): Note[] {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const stmt = this.getOrCreateStatement(
+      'getTodayNotes',
+      'SELECT * FROM notes WHERE date(created_at) = ? ORDER BY created_at DESC'
+    );
+    const rows = stmt.all(today);
+    return rows.map(row => this.parseNoteRow(row));
+  }
+
+  // 根据项目获取笔记 - 优化版本
+  getNotesByProject(project: string): Note[] {
+    const stmt = this.getOrCreateStatement(
+      'getNotesByProject',
+      'SELECT * FROM notes WHERE project_hint = ? ORDER BY created_at DESC'
+    );
+    const rows = stmt.all(project);
+    return rows.map(row => this.parseNoteRow(row));
+  }
+
+  // 删除笔记 - 优化版本
+  deleteNote(id: string): boolean {
+    const stmt = this.getOrCreateStatement(
+      'deleteNote',
+      'DELETE FROM notes WHERE id = ?'
+    );
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+
+  // 更新笔记 - 优化版本
+  updateNote(id: string, text: string): boolean {
+    const stmt = this.getOrCreateStatement(
+      'updateNote',
+      'UPDATE notes SET text = ? WHERE id = ?'
+    );
+    const result = stmt.run(text, id);
+    return result.changes > 0;
+  }
+
+  // 更新笔记标签
+  updateNoteTags(id: string, tags: string[]): boolean {
+    const stmt = this.getOrCreateStatement(
+      'updateNoteTags',
+      'UPDATE notes SET tags = ? WHERE id = ?'
+    );
+    const tagsJson = JSON.stringify(tags);
+    const result = stmt.run(tagsJson, id);
+    return result.changes > 0;
+  }
+
+  // 更新笔记文本和标签
+  updateNoteWithTags(id: string, text: string, tags?: string[]): boolean {
+    const transaction = this.db.transaction(() => {
+      // 更新文本
+      const textStmt = this.getOrCreateStatement(
+        'updateNoteText',
+        'UPDATE notes SET text = ? WHERE id = ?'
+      );
+      textStmt.run(text, id);
+
+      // 如果提供了标签，也更新标签
+      if (tags !== undefined) {
+        const tagsStmt = this.getOrCreateStatement(
+          'updateNoteTags2',
+          'UPDATE notes SET tags = ? WHERE id = ?'
+        );
+        const tagsJson = JSON.stringify(tags);
+        tagsStmt.run(tagsJson, id);
+      }
+    });
+
+    try {
+      transaction();
+      return true;
+    } catch (error) {
+      console.error('Failed to update note:', error);
+      return false;
+    }
+  }
+
+  // 设置配置 - 优化版本
+  setSetting(key: string, value: string): void {
+    const stmt = this.getOrCreateStatement(
+      'setSetting',
+      'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'
+    );
+    stmt.run(key, value);
+  }
+
+  // 获取配置 - 优化版本
+  getSetting(key: string): string | null {
+    const stmt = this.getOrCreateStatement(
+      'getSetting',
+      'SELECT value FROM settings WHERE key = ?'
+    );
+    const result = stmt.get(key) as { value: string } | undefined;
+    return result?.value || null;
+  }
+
+  // 推断项目提示 - 简化版，不自动分类
+  private inferProjectHint(_text: string, _context?: Context): string {
+    // 默认为通用分类，不再进行自动项目推断
+    // 项目分类将完全依赖用户手动添加的标签
+    return 'general';
+  }
+
+  // 推断笔记类型
+  private inferTypeHint(text: string): string {
+    const t = text.toLowerCase();
+
+    // TODO关键词
+    if (t.startsWith('todo') || t.match(/(明天|later|记得|follow up|跟进|需要|要做)/)) {
+      return 'todo';
+    }
+
+    // 问题/风险关键词
+    if (t.match(/(风险|risk|问题|bug|错误|error|blocker|阻塞)/)) {
+      return 'issue';
+    }
+
+    // 想法/创意关键词
+    if (t.match(/(想法|idea|可以考虑|也许|建议|优化)/)) {
+      return 'idea';
+    }
+
+    // 情绪/感受关键词
+    if (t.match(/(感觉|心情|累|沮丧|开心|压力|焦虑)/)) {
+      return 'feeling';
+    }
+
+    return 'note';
+  }
+
+  // 保存每日总结到历史记录
+  saveDigest(date: string, summary: string): SavedDigest {
+    const id = uuidv4();
+    const saved_at = new Date().toISOString();
+
+    const savedDigest: SavedDigest = {
+      id,
+      date,
+      summary,
+      created_at: date, // 使用总结对应的日期作为创建时间
+      saved_at
+    };
+
+    const stmt = this.getOrCreateStatement(
+      'saveDigest',
+      'INSERT INTO saved_digests (id, date, summary, created_at, saved_at) VALUES (?, ?, ?, ?, ?)'
+    );
+
+    stmt.run(
+      savedDigest.id,
+      savedDigest.date,
+      savedDigest.summary,
+      savedDigest.created_at,
+      savedDigest.saved_at
+    );
+
+    return savedDigest;
+  }
+
+  // 获取所有保存的总结
+  getSavedDigests(): SavedDigest[] {
+    const stmt = this.getOrCreateStatement(
+      'getSavedDigests',
+      'SELECT * FROM saved_digests ORDER BY date DESC, saved_at DESC'
+    );
+    const rows = stmt.all();
+    return rows as SavedDigest[];
+  }
+
+  // 根据日期获取保存的总结
+  getSavedDigestByDate(date: string): SavedDigest | null {
+    const stmt = this.getOrCreateStatement(
+      'getSavedDigestByDate',
+      'SELECT * FROM saved_digests WHERE date = ? ORDER BY saved_at DESC LIMIT 1'
+    );
+    const result = stmt.get(date);
+    return result as SavedDigest | null;
+  }
+
+  // 删除保存的总结
+  deleteSavedDigest(id: string): boolean {
+    const stmt = this.getOrCreateStatement(
+      'deleteSavedDigest',
+      'DELETE FROM saved_digests WHERE id = ?'
+    );
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+
+  // 关闭数据库连接 - 优化版本
+  close(): void {
+    // 清理预编译语句缓存（better-sqlite3会自动清理语句）
+    this.preparedStatements.clear();
+
+    // 关闭数据库连接
+    this.db.close();
+  }
+}
