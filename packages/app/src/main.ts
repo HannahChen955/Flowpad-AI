@@ -304,8 +304,16 @@ class FlowpadApp {
     // 窗口准备好后根据设置决定是否显示
     this.floatingWindow.once('ready-to-show', () => {
       safeLog('FloatingWindow: ready-to-show 事件触发');
-      const enabled = this.db.getSetting('floating_window_enabled');
-      safeLog('FloatingWindow: 数据库设置:', enabled);
+
+      // 安全地获取数据库设置，添加错误处理
+      let enabled = 'false';
+      try {
+        enabled = this.db.getSetting('floating_window_enabled') || 'false';
+        safeLog('FloatingWindow: 数据库设置:', enabled);
+      } catch (error) {
+        safeLog('FloatingWindow: 数据库读取失败，使用默认值:', error);
+        enabled = 'false';
+      }
 
       // 临时强制启用浮窗以修复状态不一致问题
       // 因为主窗口UI显示"已启用"但后台数据库为false

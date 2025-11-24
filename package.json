@@ -1,6 +1,6 @@
 {
   "name": "flowpad",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "AI-powered context-aware notes capture tool",
   "main": "packages/app/dist/main.js",
   "author": "ChenHan",

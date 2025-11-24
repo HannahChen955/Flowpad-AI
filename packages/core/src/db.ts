@@ -6,8 +6,22 @@ export class FlowpadDB {
   private db: Database.Database;
 
   constructor(config: DatabaseConfig) {
-    this.db = new Database(config.path);
-    this.initialize();
+    try {
+      this.db = new Database(config.path);
+      this.initialize();
+    } catch (error) {
+      console.error('数据库初始化失败:', error);
+      throw error;
+    }
+  }
+
+  // 检查数据库连接是否可用
+  private isConnectionOpen(): boolean {
+    try {
+      return this.db && !this.db.readonly && this.db.open;
+    } catch {
+      return false;
+    }
   }
 
   private initialize(): void {
@@ -247,23 +261,42 @@ export class FlowpadDB {
     }
   }
 
-  // 设置配置 - 优化版本
+  // 设置配置 - 优化版本，添加连接检查
   setSetting(key: string, value: string): void {
-    const stmt = this.getOrCreateStatement(
-      'setSetting',
-      'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'
-    );
-    stmt.run(key, value);
+    if (!this.isConnectionOpen()) {
+      console.warn('数据库连接未打开，无法设置:', key, '=', value);
+      return;
+    }
+
+    try {
+      const stmt = this.getOrCreateStatement(
+        'setSetting',
+        'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'
+      );
+      stmt.run(key, value);
+    } catch (error) {
+      console.error('设置配置失败:', key, '=', value, error);
+    }
   }
 
-  // 获取配置 - 优化版本
+  // 获取配置 - 优化版本，添加连接检查
   getSetting(key: string): string | null {
-    const stmt = this.getOrCreateStatement(
-      'getSetting',
-      'SELECT value FROM settings WHERE key = ?'
-    );
-    const result = stmt.get(key) as { value: string } | undefined;
-    return result?.value || null;
+    if (!this.isConnectionOpen()) {
+      console.warn('数据库连接未打开，无法获取设置:', key);
+      return null;
+    }
+
+    try {
+      const stmt = this.getOrCreateStatement(
+        'getSetting',
+        'SELECT value FROM settings WHERE key = ?'
+      );
+      const result = stmt.get(key) as { value: string } | undefined;
+      return result?.value || null;
+    } catch (error) {
+      console.error('获取设置失败:', key, error);
+      return null;
+    }
   }
 
   // 推断项目提示 - 简化版，不自动分类
