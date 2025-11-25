@@ -235,6 +235,11 @@ class FlowpadApp {
       // })
     });
 
+    // 让浮窗在所有空间/全屏上都可见，避免因空间切换打断全屏
+    if (this.floatingWindow.setVisibleOnAllWorkspaces) {
+      this.floatingWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    }
+
     // 安全日志方法，避免EPIPE错误
     const safeLog = (message: string, ...args: any[]) => {
       try {
@@ -375,43 +380,70 @@ class FlowpadApp {
   }
 
   private registerGlobalShortcuts(): void {
-    // 注册 Option+N 快捷键显示浮窗
-    globalShortcut.register('Option+N', () => {
-      this.showFloatingWindow();
-    });
+    try {
+      console.log('开始注册全局快捷键...');
 
-    // 注册 Option+M 快捷键显示主窗口
-    globalShortcut.register('Option+M', () => {
-      this.showMainWindow();
-    });
+      // 注册 Option+N 快捷键显示浮窗并自动展开到对话模式
+      const optionN = globalShortcut.register('Option+N', () => {
+        console.log('Option+N 快捷键被触发');
+        this.showFloatingWindowExpanded();
+      });
+      console.log('Option+N 注册结果:', optionN);
 
-    // 注册 Option+H 快捷键隐藏所有窗口
-    globalShortcut.register('Option+H', () => {
-      this.hideAllWindows();
-    });
+      // 注册 Option+M 快捷键显示主窗口
+      const optionM = globalShortcut.register('Option+M', () => {
+        console.log('Option+M 快捷键被触发');
+        this.showMainWindow();
+      });
+      console.log('Option+M 注册结果:', optionM);
 
-    // 注册 Option+Q 快捷键退出应用
-    globalShortcut.register('Option+Q', () => {
-      this.quit();
-    });
+      // 注册 Option+H 快捷键隐藏所有窗口
+      const optionH = globalShortcut.register('Option+H', () => {
+        console.log('Option+H 快捷键被触发');
+        this.hideAllWindows();
+      });
+      console.log('Option+H 注册结果:', optionH);
 
-    // 注册 Option+T 快捷键切换浮窗显示状态
-    globalShortcut.register('Option+T', () => {
-      this.toggleFloatingWindow();
-    });
+      // 注册 Option+Q 快捷键退出应用
+      const optionQ = globalShortcut.register('Option+Q', () => {
+        console.log('Option+Q 快捷键被触发');
+        this.quit();
+      });
+      console.log('Option+Q 注册结果:', optionQ);
 
-    // 注册 Option+D 快捷键显示今日总结
-    globalShortcut.register('Option+D', () => {
-      this.showTodayDigest();
-    });
+      // 注册 Option+T 快捷键切换浮窗显示状态
+      const optionT = globalShortcut.register('Option+T', () => {
+        console.log('Option+T 快捷键被触发');
+        this.toggleFloatingWindow();
+      });
+      console.log('Option+T 注册结果:', optionT);
 
-    console.log('已注册全局快捷键:');
-    console.log('  Option+N: 显示快速记录窗口');
-    console.log('  Option+M: 显示主窗口');
-    console.log('  Option+H: 隐藏所有窗口');
-    console.log('  Option+Q: 退出应用');
-    console.log('  Option+T: 切换浮窗状态');
-    console.log('  Option+D: 显示今日总结');
+      // 注册 Option+D 快捷键显示今日总结
+      const optionD = globalShortcut.register('Option+D', () => {
+        console.log('Option+D 快捷键被触发');
+        this.showTodayDigest();
+      });
+      console.log('Option+D 注册结果:', optionD);
+
+      // 注册 Option+Shift+N 快捷键快速收起浮窗
+      const optionShiftN = globalShortcut.register('Option+Shift+N', () => {
+        console.log('Option+Shift+N 快捷键被触发');
+        this.hideFloatingWindow();
+      });
+      console.log('Option+Shift+N 注册结果:', optionShiftN);
+
+      console.log('已注册全局快捷键:');
+      console.log('  Option+N: 显示快速记录窗口');
+      console.log('  Option+Shift+N: 快速收起浮窗');
+      console.log('  Option+M: 显示主窗口');
+      console.log('  Option+H: 隐藏所有窗口');
+      console.log('  Option+Q: 退出应用');
+      console.log('  Option+T: 切换浮窗状态');
+      console.log('  Option+D: 显示今日总结');
+    } catch (error) {
+      console.error('注册全局快捷键失败:', error);
+      console.log('可能需要在 系统偏好设置 > 安全性与隐私 > 隐私 > 辅助功能 中添加应用权限');
+    }
   }
 
   private createTray(): void {
@@ -470,12 +502,62 @@ class FlowpadApp {
 
   private showMainWindow(): void {
     if (this.mainWindow) {
+      // 检测全屏状态：包括主窗口本身和其他应用可能的全屏状态
+      if (this.isInFullScreenEnvironment()) {
+        console.log('showMainWindow: 检测到全屏环境，跳过显示以保持全屏体验');
+        return;
+      }
+
       if (this.mainWindow.isMinimized()) {
         this.mainWindow.restore();
       }
       this.mainWindow.show();
       this.mainWindow.focus();
       this.updateAppState({ mainWindowVisible: true });
+    }
+  }
+
+  // 检测是否处于全屏环境（包括其他应用的全屏）
+  private isInFullScreenEnvironment(): boolean {
+    if (!this.mainWindow) return false;
+
+    try {
+      // 1. 检查我们的主窗口是否全屏
+      if (this.mainWindow.isFullScreen()) {
+        console.log('全屏检测: Flowpad主窗口处于全屏状态');
+        return true;
+      }
+
+      // 2. 通过屏幕尺寸和可用工作区域检测其他应用可能的全屏状态
+      const { screen } = require('electron');
+      const primaryDisplay = screen.getPrimaryDisplay();
+      const workArea = primaryDisplay.workArea;
+      const bounds = primaryDisplay.bounds;
+
+      // 如果工作区域明显小于显示器边界，可能有全屏应用
+      const hasFullScreenApp = (
+        workArea.width < bounds.width - 10 ||
+        workArea.height < bounds.height - 10
+      );
+
+      console.log(`全屏检测: 显示器尺寸:${bounds.width}x${bounds.height}, 工作区域:${workArea.width}x${workArea.height}`);
+
+      if (hasFullScreenApp) {
+        console.log('全屏检测: 检测到可能有其他应用全屏（工作区域受限）');
+        return true;
+      }
+
+      // 3. 检查窗口焦点状态作为辅助判断
+      const isFocused = this.mainWindow.isFocused();
+      const isVisible = this.mainWindow.isVisible();
+      const isMinimized = this.mainWindow.isMinimized();
+
+      console.log(`全屏检测: 窗口状态 - 聚焦:${isFocused}, 可见:${isVisible}, 最小化:${isMinimized}`);
+
+      return false;
+    } catch (error) {
+      console.error('全屏检测失败:', error);
+      return false;
     }
   }
 
@@ -530,6 +612,51 @@ class FlowpadApp {
           this.safeDatabaseSet('floating_window_enabled', 'true');
         }
       }
+    }
+  }
+
+  // 显示浮窗并自动展开到对话模式
+  private showFloatingWindowExpanded(): void {
+    console.log('showFloatingWindowExpanded: 开始显示展开的浮窗');
+
+    // 先正常显示浮窗
+    this.showFloatingWindow();
+
+    // 等待浮窗准备好后自动展开
+    if (this.floatingWindow && !this.floatingWindow.isDestroyed()) {
+      // 等待一小段时间确保浮窗完全加载
+      setTimeout(() => {
+        try {
+          // 设置展开的大小和位置
+          const expandedWidth = 350;
+          const expandedHeight = 500;
+
+          const { screen } = require('electron');
+          const point = screen.getCursorScreenPoint();
+
+          // 调整位置确保展开的窗口在屏幕内
+          const adjustedX = Math.max(0, Math.min(point.x - 30, screen.getPrimaryDisplay().workAreaSize.width - expandedWidth));
+          const adjustedY = Math.max(0, Math.min(point.y - 30, screen.getPrimaryDisplay().workAreaSize.height - expandedHeight));
+
+          this.floatingWindow?.setPosition(adjustedX, adjustedY);
+          this.floatingWindow?.setSize(expandedWidth, expandedHeight);
+          this.floatingWindow?.setAlwaysOnTop(true, 'screen-saver', 1);
+
+          // 发送展开信号给前端组件
+          if (this.floatingWindow && !this.floatingWindow.isDestroyed() && !this.floatingWindow.webContents.isDestroyed()) {
+            try {
+              this.floatingWindow.webContents.send('expand-floating-window');
+              console.log('showFloatingWindowExpanded: 已发送展开信号给前端组件');
+            } catch (error) {
+              console.warn('showFloatingWindowExpanded: 发送展开信号失败:', error);
+            }
+          }
+
+          console.log(`showFloatingWindowExpanded: 浮窗已展开为 ${expandedWidth}x${expandedHeight}`);
+        } catch (error) {
+          console.error('showFloatingWindowExpanded: 展开浮窗失败:', error);
+        }
+      }, 500); // 增加延迟确保浮窗React组件完全初始化
     }
   }
 
@@ -1028,6 +1155,21 @@ class FlowpadApp {
   }
 
   private showTodayDigest(): void {
+    if (this.mainWindow && this.isInFullScreenEnvironment()) {
+      console.log('showTodayDigest: 检测到全屏环境，只导航不显示以保持全屏体验');
+      // 直接发送导航消息，不显示窗口
+      if (!this.mainWindow.isDestroyed() && !this.mainWindow.webContents.isDestroyed()) {
+        try {
+          this.mainWindow.webContents.send('navigate-to-digest');
+          console.log('今日总结页面导航完成（全屏模式）');
+        } catch (error) {
+          console.warn('Failed to navigate to digest in fullscreen mode:', error);
+        }
+      }
+      return;
+    }
+
+    // 非全屏状态下正常显示
     this.showMainWindow();
     // 向主窗口发送消息，切换到今日总结页面
     if (this.mainWindow && !this.mainWindow.isDestroyed() && !this.mainWindow.webContents.isDestroyed()) {

@@ -44,6 +44,15 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
     return () => cancelAnimationFrame(rafId);
   }, [messages.length]); // 只依赖消息数量，而非整个 messages 数组
 
+  // 监听主进程发来的展开事件，快捷键 Option+N 直接进入聊天模式
+  useEffect(() => {
+    const handler = () => setIsExpanded(true);
+    const unsubscribe = (window as any).electronAPI?.onExpandFloatingWindow?.(handler);
+    return () => {
+      (window as any).electronAPI?.removeExpandFloatingWindowListener?.(unsubscribe);
+    };
+  }, []);
+
   // 检测消息类型
   const detectMessageType = (text: string): 'question' | 'task' | 'other' => {
     const lowerText = text.toLowerCase();
