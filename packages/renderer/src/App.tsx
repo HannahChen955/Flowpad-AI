@@ -110,44 +110,41 @@ function App() {
   return (
     <div className="flex h-screen bg-gray-50">
       {/* 侧边栏 */}
-      <div className="w-64 lg:w-64 md:w-48 sm:w-12 bg-white border-r border-gray-200 flex flex-col">
-        <div className="p-6 sm:p-2 border-b border-gray-200">
+      <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
+        <div className="p-6 border-b border-gray-200">
           <div className="flex items-center justify-between">
-            <div className="sm:hidden">
+            <div>
               <h1 className="text-2xl font-bold text-gray-900">Flowpad</h1>
               <p className="text-sm text-gray-600 mt-1">AI记事本</p>
             </div>
-            <div className="text-xs text-gray-400 font-mono bg-gray-50 px-2 py-1 rounded sm:hidden">
+            <div className="text-xs text-gray-400 font-mono bg-gray-50 px-2 py-1 rounded">
               v2.0.1-stable
-            </div>
-            <div className="hidden sm:block text-center w-full">
-              <div className="text-lg font-bold text-gray-900">F</div>
             </div>
           </div>
         </div>
 
-        <nav className="flex-1 p-4 sm:p-1">
+        <nav className="flex-1 p-4">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`w-full flex items-center px-4 py-3 mb-2 rounded-lg text-left transition-colors sm:px-1 sm:py-2 sm:justify-center ${
+                className={`w-full flex items-center px-4 py-3 mb-2 rounded-lg text-left transition-colors ${
                   activeTab === tab.id
                     ? 'bg-primary-50 text-primary-700 border border-primary-200'
                     : 'text-gray-700 hover:bg-gray-100'
                 }`}
                 title={tab.name}
               >
-                <Icon className="w-5 h-5 mr-3 sm:mr-0" />
-                <span className="sm:hidden">{tab.name}</span>
+                <Icon className="w-5 h-5 mr-3" />
+                <span className="font-medium">{tab.name}</span>
               </button>
             );
           })}
         </nav>
 
-        <div className="p-4 border-t border-gray-200 text-xs text-gray-500 sm:hidden">
+        <div className="p-4 border-t border-gray-200 text-xs text-gray-500">
           <p>快捷键：⌥N 快速记录 | ⌥M 显示主窗口</p>
         </div>
       </div>

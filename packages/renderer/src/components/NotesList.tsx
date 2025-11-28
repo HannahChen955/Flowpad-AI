@@ -51,44 +51,33 @@ const NoteItem = React.memo<NoteItemProps>(({ note, isSelected, onSelect, onDele
   return (
     <div
       onClick={handleClick}
-      className={`group p-3 mb-2 rounded-lg cursor-pointer transition-colors ${
+      className={`group p-4 mb-3 rounded-lg cursor-pointer transition-colors border ${
         isSelected
-          ? 'bg-primary-50 border border-primary-200'
-          : 'bg-white hover:bg-gray-50 border border-transparent'
+          ? 'bg-primary-50 border-primary-200 shadow-sm'
+          : 'bg-white hover:bg-gray-50 border-gray-200 hover:border-gray-300 hover:shadow-sm'
       }`}
     >
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex items-center space-x-2 flex-wrap">
-          <span className={`text-xs px-2 py-1 rounded-full ${getTypeColor(note.type_hint)}`}>
+      {/* 顶部区域：类型标签和时间 */}
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center space-x-2">
+          <span className={`text-xs px-2 py-1 rounded-full font-medium ${getTypeColor(note.type_hint)}`}>
             {getTypeName(note.type_hint)}
           </span>
           {/* Status indicator */}
           {note.type_hint === 'todo' && (
             <button
               onClick={handleStatusClick}
-              className={`text-xs px-2 py-1 rounded-full border transition-colors hover:opacity-80 ${getStatusInfo(note.tags).color}`}
+              className={`text-xs px-2 py-1 rounded-full border transition-colors hover:opacity-80 font-medium ${getStatusInfo(note.tags).color}`}
               title="点击切换状态"
             >
               {getStatusInfo(note.tags).status}
             </button>
           )}
-          {note.project_hint && (
-            <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-800">
-              {note.project_hint}
-            </span>
-          )}
-          {note.tags && note.tags.length > 0 && (
-            note.tags.map((tag, index) => (
-              <span key={index} className="text-xs px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">
-                #{tag}
-              </span>
-            ))
-          )}
         </div>
         <div className="flex items-center space-x-2 text-gray-400">
           <div className="flex items-center space-x-1">
             <Clock className="w-3 h-3" />
-            <span className="text-xs">{formattedTime}</span>
+            <span className="text-xs font-medium">{formattedTime}</span>
           </div>
           <button
             onClick={handleDelete}
@@ -100,18 +89,42 @@ const NoteItem = React.memo<NoteItemProps>(({ note, isSelected, onSelect, onDele
         </div>
       </div>
 
-      <p className="text-sm text-gray-800 line-clamp-1 mb-2 truncate">
-        {note.text}
-      </p>
+      {/* 内容区域 */}
+      <div className="mb-3">
+        <p className="text-sm text-gray-900 line-clamp-2 leading-relaxed">
+          {note.text}
+        </p>
+      </div>
 
-      {note.app_name && (
-        <div className="flex items-center text-xs text-gray-500">
-          <Monitor className="w-3 h-3 mr-1" />
-          <span>{note.app_name}</span>
-          {note.window_title && (
-            <span className="mx-1">•</span>
+      {/* 标签区域 */}
+      {((note.project_hint) || (note.tags && note.tags.length > 0)) && (
+        <div className="flex items-center space-x-2 flex-wrap gap-y-2 mb-3">
+          {note.project_hint && (
+            <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-800 font-medium">
+              项目: {note.project_hint}
+            </span>
           )}
-          <span className="truncate">{note.window_title}</span>
+          {note.tags && note.tags.length > 0 && (
+            note.tags.map((tag, index) => (
+              <span key={index} className="text-xs px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200 font-medium">
+                #{tag}
+              </span>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* 底部应用信息 */}
+      {note.app_name && (
+        <div className="flex items-center text-xs text-gray-500 border-t border-gray-100 pt-2 mt-2">
+          <Monitor className="w-3 h-3 mr-2 flex-shrink-0" />
+          <span className="font-medium">{note.app_name}</span>
+          {note.window_title && (
+            <>
+              <span className="mx-2 text-gray-300">•</span>
+              <span className="truncate text-gray-600">{note.window_title}</span>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -527,10 +540,10 @@ const NotesList: React.FC = () => {
   }
 
   return (
-    <div className="flex-1 flex justify-center p-4">
-      <div className="w-full max-w-5xl flex flex-col lg:flex-row">
+    <div className="flex-1 flex p-4">
+      <div className="w-full flex flex-col lg:flex-row">
       {/* 笔记列表 */}
-      <div className="w-full lg:w-1/2 lg:border-r border-gray-200 flex flex-col lg:max-h-screen">
+      <div className="w-full lg:w-96 lg:border-r border-gray-200 flex flex-col lg:max-h-screen lg:mr-6">
         <div className="p-4 border-b border-gray-200">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-medium text-gray-900">最近记录</h3>
@@ -810,7 +823,7 @@ const NotesList: React.FC = () => {
       </div>
 
       {/* 详情面板 */}
-      <div className="flex-1 flex flex-col lg:max-h-screen min-h-0">
+      <div className="flex-1 flex flex-col lg:max-h-screen min-h-0 lg:max-w-2xl lg:pl-6">
         {selectedNote ? (
           <>
             <div className="p-4 border-b border-gray-200">
