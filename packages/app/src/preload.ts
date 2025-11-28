@@ -34,7 +34,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 浮窗窗口控制API
   resizeFloatingWindow: (width: number, height: number) => ipcRenderer.invoke('resize-floating-window', width, height),
-  moveFloatingWindow: (x: number, y: number) => ipcRenderer.invoke('move-floating-window', x, y),
   onExpandFloatingWindow: (callback: () => void) => {
     const handler = () => callback();
     ipcRenderer.on('expand-floating-window', handler);
@@ -97,7 +96,6 @@ declare global {
       getFloatingWindowEnabled: () => Promise<{success: boolean; data?: boolean; error?: string}>;
       setFloatingWindowEnabled: (enabled: boolean) => Promise<{success: boolean; data?: boolean; error?: string}>;
       resizeFloatingWindow: (width: number, height: number) => Promise<void>;
-      moveFloatingWindow: (x: number, y: number) => Promise<void>;
       onExpandFloatingWindow: (callback: () => void) => any;
       removeExpandFloatingWindowListener: (handler?: any) => void;
       onFloatingWindowStateChanged: (callback: (enabled: boolean) => void) => any;

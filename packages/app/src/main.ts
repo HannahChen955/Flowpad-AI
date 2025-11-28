@@ -6,6 +6,104 @@ import { FlowpadDB, ContextCapture, AIService, CreateNoteInput, AIConfig } from 
 // 加载.env文件（如果存在）
 dotenv.config({ path: path.join(__dirname, '../../../.env') });
 
+// 全局安全日志系统，避免终端关闭后的 EPIPE 错误
+class SafeLogger {
+  private terminalDisconnected = false;
+
+  constructor() {
+    // 监听进程事件以检测终端断开连接
+    process.on('SIGPIPE', () => {
+      this.terminalDisconnected = true;
+    });
+
+    process.on('EPIPE', () => {
+      this.terminalDisconnected = true;
+    });
+
+    // 防止应用在终端关闭时退出
+    process.on('SIGHUP', () => {
+      // 忽略SIGHUP信号，防止终端关闭时应用退出
+      this.terminalDisconnected = true;
+    });
+
+    process.on('SIGTERM', () => {
+      // 忽略SIGTERM信号（除非是真正的应用退出请求）
+      this.terminalDisconnected = true;
+    });
+
+    // 监听 stdout/stderr 的错误事件
+    process.stdout.on('error', (err) => {
+      if (err.code === 'EPIPE' || err.code === 'ECONNRESET') {
+        this.terminalDisconnected = true;
+      }
+    });
+
+    process.stderr.on('error', (err) => {
+      if (err.code === 'EPIPE' || err.code === 'ECONNRESET') {
+        this.terminalDisconnected = true;
+      }
+    });
+  }
+
+  private isTerminalAvailable(): boolean {
+    if (this.terminalDisconnected) {
+      return false;
+    }
+
+    try {
+      // 检查 stdout 和 stderr 是否可用
+      return process.stdout.writable && process.stderr.writable && !process.stdout.destroyed && !process.stderr.destroyed;
+    } catch {
+      this.terminalDisconnected = true;
+      return false;
+    }
+  }
+
+  log(message: string, ...args: any[]): void {
+    try {
+      if (this.isTerminalAvailable()) {
+        console.log(message, ...args);
+      }
+    } catch (error: any) {
+      // 检测 EPIPE 或连接重置错误并静默处理
+      if (error.code === 'EPIPE' || error.code === 'ECONNRESET' || error.errno === -32) {
+        this.terminalDisconnected = true;
+      }
+      // 完全静默处理，不再尝试写入
+    }
+  }
+
+  warn(message: string, ...args: any[]): void {
+    try {
+      if (this.isTerminalAvailable()) {
+        console.warn(message, ...args);
+      }
+    } catch (error: any) {
+      // 检测 EPIPE 或连接重置错误并静默处理
+      if (error.code === 'EPIPE' || error.code === 'ECONNRESET' || error.errno === -32) {
+        this.terminalDisconnected = true;
+      }
+      // 完全静默处理，不再尝试写入
+    }
+  }
+
+  error(message: string, ...args: any[]): void {
+    try {
+      if (this.isTerminalAvailable()) {
+        console.error(message, ...args);
+      }
+    } catch (error: any) {
+      // 检测 EPIPE 或连接重置错误并静默处理
+      if (error.code === 'EPIPE' || error.code === 'ECONNRESET' || error.errno === -32) {
+        this.terminalDisconnected = true;
+      }
+      // 完全静默处理，不再尝试写入
+    }
+  }
+}
+
+const safeLogger = new SafeLogger();
+
 class FlowpadApp {
   private mainWindow: BrowserWindow | null = null;
   private floatingWindow: BrowserWindow | null = null;
@@ -46,7 +144,7 @@ class FlowpadApp {
       try {
         this.mainWindow.webContents.send('app-state-changed', this.appState);
       } catch (error) {
-        console.warn('Failed to broadcast state change to main window:', error);
+        safeLogger.warn('Failed to broadcast state change to main window:', error);
       }
     }
   }
@@ -92,7 +190,7 @@ class FlowpadApp {
       openAsHidden: newAutoStartEnabled,
     });
     this.updateAppState({ autoStartEnabled: newAutoStartEnabled });
-    console.log(`开机自启动${newAutoStartEnabled ? '已开启' : '已关闭'}`);
+    safeLogger.log(`开机自启动${newAutoStartEnabled ? '已开启' : '已关闭'}`);
   }
 
   async init(): Promise<void> {
@@ -117,7 +215,7 @@ class FlowpadApp {
     // 确保单实例
     const gotTheLock = app.requestSingleInstanceLock();
     if (!gotTheLock) {
-      console.log('另一个实例已经在运行，退出当前实例');
+      safeLogger.log('另一个实例已经在运行，退出当前实例');
       app.quit();
       return;
     }
@@ -157,14 +255,14 @@ class FlowpadApp {
     let windowIcon;
     try {
       const iconPath = path.join(__dirname, 'assets/icon.png');
-      console.log('MainWindow: 尝试加载窗口图标:', iconPath);
+      safeLogger.log('MainWindow: 尝试加载窗口图标:', iconPath);
       windowIcon = nativeImage.createFromPath(iconPath);
       if (windowIcon.isEmpty()) {
         throw new Error('Icon file not found');
       }
-      console.log('MainWindow: 窗口图标加载成功');
+      safeLogger.log('MainWindow: 窗口图标加载成功');
     } catch (error) {
-      console.log('MainWindow: 窗口图标加载失败，使用默认图标');
+      safeLogger.log('MainWindow: 窗口图标加载失败，使用默认图标');
       windowIcon = undefined;
     }
 
@@ -240,19 +338,13 @@ class FlowpadApp {
       this.floatingWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     }
 
-    // 安全日志方法，避免EPIPE错误
+    // 使用全局安全日志方法
     const safeLog = (message: string, ...args: any[]) => {
-      try {
-        if (this.floatingWindow && !this.floatingWindow.isDestroyed()) {
-          console.log(message, ...args);
-        }
-      } catch (error) {
-        // 静默处理EPIPE错误和其他写入错误，避免应用崩溃
-      }
+      safeLogger.log(message, ...args);
     };
 
     // Debug: 监听浮窗控制台消息，添加错误处理
-    this.floatingWindow.webContents.on('console-message', (event, level, message) => {
+    this.floatingWindow.webContents.on('console-message', (_, level, message) => {
       safeLog(`FloatingWindow [${level}]:`, message);
     });
 
@@ -345,7 +437,7 @@ class FlowpadApp {
         try {
           this.mainWindow.webContents.send('floating-window-state-changed', false);
         } catch (error) {
-          console.warn('Failed to send floating window close state to main window:', error);
+          safeLogger.warn('Failed to send floating window close state to main window:', error);
         }
       }
     });
@@ -359,7 +451,7 @@ class FlowpadApp {
         try {
           this.mainWindow.webContents.send('floating-window-state-changed', false);
         } catch (error) {
-          console.warn('Failed to send floating window hide state to main window:', error);
+          safeLogger.warn('Failed to send floating window hide state to main window:', error);
         }
       }
     });
@@ -373,7 +465,7 @@ class FlowpadApp {
         try {
           this.mainWindow.webContents.send('floating-window-state-changed', true);
         } catch (error) {
-          console.warn('Failed to send floating window show state to main window:', error);
+          safeLogger.warn('Failed to send floating window show state to main window:', error);
         }
       }
     });
@@ -381,68 +473,68 @@ class FlowpadApp {
 
   private registerGlobalShortcuts(): void {
     try {
-      console.log('开始注册全局快捷键...');
+      safeLogger.log('开始注册全局快捷键...');
 
       // 注册 Option+N 快捷键显示浮窗并自动展开到对话模式
       const optionN = globalShortcut.register('Option+N', () => {
-        console.log('Option+N 快捷键被触发');
+        safeLogger.log('Option+N 快捷键被触发');
         this.showFloatingWindowExpanded();
       });
-      console.log('Option+N 注册结果:', optionN);
+      safeLogger.log('Option+N 注册结果:', optionN);
 
       // 注册 Option+M 快捷键显示主窗口
       const optionM = globalShortcut.register('Option+M', () => {
-        console.log('Option+M 快捷键被触发');
+        safeLogger.log('Option+M 快捷键被触发');
         this.showMainWindow();
       });
-      console.log('Option+M 注册结果:', optionM);
+      safeLogger.log('Option+M 注册结果:', optionM);
 
       // 注册 Option+H 快捷键隐藏所有窗口
       const optionH = globalShortcut.register('Option+H', () => {
-        console.log('Option+H 快捷键被触发');
+        safeLogger.log('Option+H 快捷键被触发');
         this.hideAllWindows();
       });
-      console.log('Option+H 注册结果:', optionH);
+      safeLogger.log('Option+H 注册结果:', optionH);
 
       // 注册 Option+Q 快捷键退出应用
       const optionQ = globalShortcut.register('Option+Q', () => {
-        console.log('Option+Q 快捷键被触发');
+        safeLogger.log('Option+Q 快捷键被触发');
         this.quit();
       });
-      console.log('Option+Q 注册结果:', optionQ);
+      safeLogger.log('Option+Q 注册结果:', optionQ);
 
       // 注册 Option+T 快捷键切换浮窗显示状态
       const optionT = globalShortcut.register('Option+T', () => {
-        console.log('Option+T 快捷键被触发');
+        safeLogger.log('Option+T 快捷键被触发');
         this.toggleFloatingWindow();
       });
-      console.log('Option+T 注册结果:', optionT);
+      safeLogger.log('Option+T 注册结果:', optionT);
 
       // 注册 Option+D 快捷键显示今日总结
       const optionD = globalShortcut.register('Option+D', () => {
-        console.log('Option+D 快捷键被触发');
+        safeLogger.log('Option+D 快捷键被触发');
         this.showTodayDigest();
       });
-      console.log('Option+D 注册结果:', optionD);
+      safeLogger.log('Option+D 注册结果:', optionD);
 
       // 注册 Option+Shift+N 快捷键快速收起浮窗
       const optionShiftN = globalShortcut.register('Option+Shift+N', () => {
-        console.log('Option+Shift+N 快捷键被触发');
+        safeLogger.log('Option+Shift+N 快捷键被触发');
         this.hideFloatingWindow();
       });
-      console.log('Option+Shift+N 注册结果:', optionShiftN);
+      safeLogger.log('Option+Shift+N 注册结果:', optionShiftN);
 
-      console.log('已注册全局快捷键:');
-      console.log('  Option+N: 显示快速记录窗口');
-      console.log('  Option+Shift+N: 快速收起浮窗');
-      console.log('  Option+M: 显示主窗口');
-      console.log('  Option+H: 隐藏所有窗口');
-      console.log('  Option+Q: 退出应用');
-      console.log('  Option+T: 切换浮窗状态');
-      console.log('  Option+D: 显示今日总结');
+      safeLogger.log('已注册全局快捷键:');
+      safeLogger.log('  Option+N: 显示快速记录窗口');
+      safeLogger.log('  Option+Shift+N: 快速收起浮窗');
+      safeLogger.log('  Option+M: 显示主窗口');
+      safeLogger.log('  Option+H: 隐藏所有窗口');
+      safeLogger.log('  Option+Q: 退出应用');
+      safeLogger.log('  Option+T: 切换浮窗状态');
+      safeLogger.log('  Option+D: 显示今日总结');
     } catch (error) {
-      console.error('注册全局快捷键失败:', error);
-      console.log('可能需要在 系统偏好设置 > 安全性与隐私 > 隐私 > 辅助功能 中添加应用权限');
+      safeLogger.error('注册全局快捷键失败:', error);
+      safeLogger.log('可能需要在 系统偏好设置 > 安全性与隐私 > 隐私 > 辅助功能 中添加应用权限');
     }
   }
 
@@ -452,22 +544,22 @@ class FlowpadApp {
     try {
       // 尝试加载自定义图标
       const iconPath = path.join(__dirname, 'assets/icon.png');
-      console.log('Tray: 尝试加载图标路径:', iconPath);
-      console.log('Tray: __dirname =', __dirname);
+      safeLogger.log('Tray: 尝试加载图标路径:', iconPath);
+      safeLogger.log('Tray: __dirname =', __dirname);
 
       trayIcon = nativeImage.createFromPath(iconPath);
-      console.log('Tray: 图标是否为空:', trayIcon.isEmpty());
+      safeLogger.log('Tray: 图标是否为空:', trayIcon.isEmpty());
 
       // 如果图标为空，使用简单的模板图标
       if (trayIcon.isEmpty()) {
         throw new Error('Custom icon not found');
       }
-      console.log('Tray: 自定义图标加载成功');
+      safeLogger.log('Tray: 自定义图标加载成功');
     } catch (error) {
-      console.log('Tray: 自定义图标加载失败:', (error as Error).message);
+      safeLogger.log('Tray: 自定义图标加载失败:', (error as Error).message);
       // 使用简单的模板图标 - 创建一个16x16的小图标
       trayIcon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAA8klEQVR4nL2TMQ7CMAwF3yYVEhNiY2VgYGJgQEysDCxMrOwsLCwsrCwsLCwsrCwsLCwsDCwMbCxMrOxdJW1Sg/wl/8nJ+98vJgQhCEFIkmRJkiRJkiT9AzDGEEKIMYYxxhhjjDH2t2CtZYwxxhhjjDHGGGP/ADDGEEKIMcYYY4wxxhj7G7DWMsYYY4wxxhhjjLF/AICIiIiIiIiIiOgfQkSUJEmSJEmSJEn/ACIiotYwxhhjjDHG2N+AtZYxxhhjjDHGGGP/AIiIqDWMMcYYY4wx9jdgrWWMMcYYY4wxxv4BAFprbW2ttbbW2lprrd0DAACAENELS5Lk1y8AAAAASUVORK5CYII=');
-      console.log('Tray: 使用备用的内置图标');
+      safeLogger.log('Tray: 使用备用的内置图标');
     }
 
     this.tray = new Tray(trayIcon.resize({ width: 16, height: 16 }));
@@ -504,7 +596,7 @@ class FlowpadApp {
     if (this.mainWindow) {
       // 检测全屏状态：包括主窗口本身和其他应用可能的全屏状态
       if (this.isInFullScreenEnvironment()) {
-        console.log('showMainWindow: 检测到全屏环境，跳过显示以保持全屏体验');
+        safeLogger.log('showMainWindow: 检测到全屏环境，跳过显示以保持全屏体验');
         return;
       }
 
@@ -524,7 +616,7 @@ class FlowpadApp {
     try {
       // 1. 检查我们的主窗口是否全屏
       if (this.mainWindow.isFullScreen()) {
-        console.log('全屏检测: Flowpad主窗口处于全屏状态');
+        safeLogger.log('全屏检测: Flowpad主窗口处于全屏状态');
         return true;
       }
 
@@ -540,10 +632,10 @@ class FlowpadApp {
         workArea.height < bounds.height - 10
       );
 
-      console.log(`全屏检测: 显示器尺寸:${bounds.width}x${bounds.height}, 工作区域:${workArea.width}x${workArea.height}`);
+      safeLogger.log(`全屏检测: 显示器尺寸:${bounds.width}x${bounds.height}, 工作区域:${workArea.width}x${workArea.height}`);
 
       if (hasFullScreenApp) {
-        console.log('全屏检测: 检测到可能有其他应用全屏（工作区域受限）');
+        safeLogger.log('全屏检测: 检测到可能有其他应用全屏（工作区域受限）');
         return true;
       }
 
@@ -552,23 +644,19 @@ class FlowpadApp {
       const isVisible = this.mainWindow.isVisible();
       const isMinimized = this.mainWindow.isMinimized();
 
-      console.log(`全屏检测: 窗口状态 - 聚焦:${isFocused}, 可见:${isVisible}, 最小化:${isMinimized}`);
+      safeLogger.log(`全屏检测: 窗口状态 - 聚焦:${isFocused}, 可见:${isVisible}, 最小化:${isMinimized}`);
 
       return false;
     } catch (error) {
-      console.error('全屏检测失败:', error);
+      safeLogger.error('全屏检测失败:', error);
       return false;
     }
   }
 
   private showFloatingWindow(): void {
-    // 安全日志方法，避免EPIPE错误
+    // 使用全局安全日志方法
     const safeMethodLog = (message: string, ...args: any[]) => {
-      try {
-        console.log(message, ...args);
-      } catch (error) {
-        // 静默处理EPIPE错误
-      }
+      safeLogger.log(message, ...args);
     };
 
     safeMethodLog('showFloatingWindow: 开始显示浮窗');
@@ -617,7 +705,7 @@ class FlowpadApp {
 
   // 显示浮窗并自动展开到对话模式
   private showFloatingWindowExpanded(): void {
-    console.log('showFloatingWindowExpanded: 开始显示展开的浮窗');
+    safeLogger.log('showFloatingWindowExpanded: 开始显示展开的浮窗');
 
     // 先正常显示浮窗
     this.showFloatingWindow();
@@ -646,15 +734,15 @@ class FlowpadApp {
           if (this.floatingWindow && !this.floatingWindow.isDestroyed() && !this.floatingWindow.webContents.isDestroyed()) {
             try {
               this.floatingWindow.webContents.send('expand-floating-window');
-              console.log('showFloatingWindowExpanded: 已发送展开信号给前端组件');
+              safeLogger.log('showFloatingWindowExpanded: 已发送展开信号给前端组件');
             } catch (error) {
-              console.warn('showFloatingWindowExpanded: 发送展开信号失败:', error);
+              safeLogger.warn('showFloatingWindowExpanded: 发送展开信号失败:', error);
             }
           }
 
-          console.log(`showFloatingWindowExpanded: 浮窗已展开为 ${expandedWidth}x${expandedHeight}`);
+          safeLogger.log(`showFloatingWindowExpanded: 浮窗已展开为 ${expandedWidth}x${expandedHeight}`);
         } catch (error) {
-          console.error('showFloatingWindowExpanded: 展开浮窗失败:', error);
+          safeLogger.error('showFloatingWindowExpanded: 展开浮窗失败:', error);
         }
       }, 500); // 增加延迟确保浮窗React组件完全初始化
     }
@@ -687,13 +775,13 @@ class FlowpadApp {
           try {
             this.mainWindow.webContents.send('note-created', note);
           } catch (error) {
-            console.warn('Failed to send note-created event to main window:', error);
+            safeLogger.warn('Failed to send note-created event to main window:', error);
           }
         }
 
         return { success: true, data: note };
       } catch (error) {
-        console.error('Failed to create note:', error);
+        safeLogger.error('Failed to create note:', error);
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     });
@@ -704,7 +792,7 @@ class FlowpadApp {
         const notes = this.db.getNotes(limit, offset);
         return { success: true, data: notes };
       } catch (error) {
-        console.error('Failed to get notes:', error);
+        safeLogger.error('Failed to get notes:', error);
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     });
@@ -715,7 +803,7 @@ class FlowpadApp {
         const notes = this.db.getTodayNotes();
         return { success: true, data: notes };
       } catch (error) {
-        console.error('Failed to get today notes:', error);
+        safeLogger.error('Failed to get today notes:', error);
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     });
@@ -726,7 +814,7 @@ class FlowpadApp {
         const success = this.db.deleteNote(id);
         return { success, data: success };
       } catch (error) {
-        console.error('Failed to delete note:', error);
+        safeLogger.error('Failed to delete note:', error);
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     });
@@ -737,7 +825,7 @@ class FlowpadApp {
         const success = this.db.updateNote(id, text);
         return { success, data: success };
       } catch (error) {
-        console.error('Failed to update note:', error);
+        safeLogger.error('Failed to update note:', error);
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     });
@@ -748,7 +836,7 @@ class FlowpadApp {
         const success = this.db.updateNoteTags(id, tags);
         return { success, data: success };
       } catch (error) {
-        console.error('Failed to update note tags:', error);
+        safeLogger.error('Failed to update note tags:', error);
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     });
@@ -763,7 +851,7 @@ class FlowpadApp {
         const optimizedContent = await this.aiService.optimizeContent(rawContent);
         return { success: true, data: optimizedContent };
       } catch (error) {
-        console.error('Failed to optimize content:', error);
+        safeLogger.error('Failed to optimize content:', error);
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     });
@@ -780,7 +868,7 @@ class FlowpadApp {
 
         return { success: true, data: digest };
       } catch (error) {
-        console.error('Failed to generate daily digest:', error);
+        safeLogger.error('Failed to generate daily digest:', error);
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     });
@@ -803,7 +891,7 @@ class FlowpadApp {
 
         return { success: true, data: isValid };
       } catch (error) {
-        console.error('Failed to set AI config:', error);
+        safeLogger.error('Failed to set AI config:', error);
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     });
@@ -824,7 +912,7 @@ class FlowpadApp {
           data: { provider, api_key, model } as AIConfig
         };
       } catch (error) {
-        console.error('Failed to get AI config:', error);
+        safeLogger.error('Failed to get AI config:', error);
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     });
@@ -839,7 +927,7 @@ class FlowpadApp {
         try {
           this.mainWindow.webContents.send('floating-window-state-changed', false);
         } catch (error) {
-          console.warn('Failed to send floating window state change to main window:', error);
+          safeLogger.warn('Failed to send floating window state change to main window:', error);
         }
       }
     });
@@ -857,7 +945,7 @@ class FlowpadApp {
         const windowNotDestroyed = windowExists && !this.floatingWindow!.isDestroyed();
         const windowIsVisible = windowNotDestroyed && this.floatingWindow!.isVisible();
 
-        console.log('Floating window status check:', {
+        safeLogger.log('Floating window status check:', {
           windowExists,
           windowNotDestroyed,
           windowIsVisible
@@ -867,7 +955,7 @@ class FlowpadApp {
         const enabledInDb = this.db.getSetting('floating_window_enabled');
         const shouldBeEnabled = enabledInDb !== 'false';
 
-        console.log('Database setting:', { enabledInDb, shouldBeEnabled });
+        safeLogger.log('Database setting:', { enabledInDb, shouldBeEnabled });
 
         // 如果浮窗应该启用但不可见，创建并显示它
         if (shouldBeEnabled && !windowIsVisible) {
@@ -885,14 +973,14 @@ class FlowpadApp {
         // 返回实际可见状态
         const actuallyEnabled = windowIsVisible && shouldBeEnabled;
 
-        console.log('Returning floating window status:', actuallyEnabled);
+        safeLogger.log('Returning floating window status:', actuallyEnabled);
 
         return {
           success: true,
           data: actuallyEnabled
         };
       } catch (error) {
-        console.error('Failed to get floating window setting:', error);
+        safeLogger.error('Failed to get floating window setting:', error);
         return {
           success: false,
           error: error instanceof Error ? error.message : String(error)
@@ -917,7 +1005,7 @@ class FlowpadApp {
           // 确保浮窗真正关闭
           if (this.floatingWindow && !this.floatingWindow.isDestroyed()) {
             this.floatingWindow.hide();
-            console.log('Floating window hidden via set-floating-window-enabled');
+            safeLogger.log('Floating window hidden via set-floating-window-enabled');
           }
         }
 
@@ -926,13 +1014,13 @@ class FlowpadApp {
           try {
             this.mainWindow.webContents.send('floating-window-state-changed', enabled);
           } catch (error) {
-            console.warn('Failed to send floating window state change to main window:', error);
+            safeLogger.warn('Failed to send floating window state change to main window:', error);
           }
         }
 
         return { success: true, data: enabled };
       } catch (error) {
-        console.error('Failed to set floating window setting:', error);
+        safeLogger.error('Failed to set floating window setting:', error);
         return {
           success: false,
           error: error instanceof Error ? error.message : String(error)
@@ -942,12 +1030,12 @@ class FlowpadApp {
 
     // 调整浮窗大小
     ipcMain.handle('resize-floating-window', (_, width: number, height: number) => {
-      console.log(`FloatingWindow: 收到窗口大小调整请求: ${width}x${height}`);
+      safeLogger.log(`FloatingWindow: 收到窗口大小调整请求: ${width}x${height}`);
       if (this.floatingWindow) {
         try {
           // 如果是展开状态(大窗口)，先隐藏主窗口，然后强制置顶浮窗
           if (width > 100 && height > 100) {
-            console.log('FloatingWindow: 展开状态 - 隐藏主窗口并强制置顶浮窗');
+            safeLogger.log('FloatingWindow: 展开状态 - 隐藏主窗口并强制置顶浮窗');
             if (this.mainWindow) {
               this.mainWindow.minimize();
             }
@@ -956,7 +1044,7 @@ class FlowpadApp {
             this.floatingWindow.focus();
             this.floatingWindow.moveTop();
           } else {
-            console.log('FloatingWindow: 收起状态 - 恢复正常层级');
+            safeLogger.log('FloatingWindow: 收起状态 - 恢复正常层级');
             this.floatingWindow.setAlwaysOnTop(true, 'normal');
             if (this.mainWindow && this.mainWindow.isMinimized()) {
               this.mainWindow.restore();
@@ -965,30 +1053,15 @@ class FlowpadApp {
 
           this.floatingWindow.setSize(width, height);
           const [currentWidth, currentHeight] = this.floatingWindow.getSize();
-          console.log(`FloatingWindow: 窗口大小已调整为: ${currentWidth}x${currentHeight}`);
+          safeLogger.log(`FloatingWindow: 窗口大小已调整为: ${currentWidth}x${currentHeight}`);
         } catch (error) {
-          console.error('FloatingWindow: 调整窗口大小失败:', error);
+          safeLogger.error('FloatingWindow: 调整窗口大小失败:', error);
         }
       } else {
-        console.error('FloatingWindow: 浮窗对象不存在，无法调整大小');
+        safeLogger.error('FloatingWindow: 浮窗对象不存在，无法调整大小');
       }
     });
 
-    // 移动浮窗位置
-    ipcMain.handle('move-floating-window', (_, x: number, y: number) => {
-      if (this.floatingWindow) {
-        // 确保窗口位置不会超出屏幕边界
-        const { screen } = require('electron');
-        const primaryDisplay = screen.getPrimaryDisplay();
-        const { bounds } = primaryDisplay;
-
-        // 限制在屏幕范围内
-        const clampedX = Math.max(0, Math.min(x, bounds.width - 60));
-        const clampedY = Math.max(0, Math.min(y, bounds.height - 60));
-
-        this.floatingWindow.setPosition(clampedX, clampedY);
-      }
-    });
 
     // AI助手对话处理
     ipcMain.handle('process-assistant-chat', async (_, userInput: string) => {
@@ -1005,7 +1078,7 @@ class FlowpadApp {
 
         return { success: true, data: response };
       } catch (error) {
-        console.error('Failed to process assistant chat:', error);
+        safeLogger.error('Failed to process assistant chat:', error);
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     });
@@ -1016,7 +1089,7 @@ class FlowpadApp {
         const savedDigest = this.db.saveDigest(date, summary);
         return { success: true, data: savedDigest };
       } catch (error) {
-        console.error('Failed to save digest to history:', error);
+        safeLogger.error('Failed to save digest to history:', error);
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     });
@@ -1027,7 +1100,7 @@ class FlowpadApp {
         const savedDigests = this.db.getSavedDigests();
         return { success: true, data: savedDigests };
       } catch (error) {
-        console.error('Failed to get saved digests:', error);
+        safeLogger.error('Failed to get saved digests:', error);
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     });
@@ -1038,7 +1111,7 @@ class FlowpadApp {
         const savedDigest = this.db.getSavedDigestByDate(date);
         return { success: true, data: savedDigest };
       } catch (error) {
-        console.error('Failed to get saved digest by date:', error);
+        safeLogger.error('Failed to get saved digest by date:', error);
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     });
@@ -1049,7 +1122,7 @@ class FlowpadApp {
         const result = this.db.deleteSavedDigest(id);
         return { success: true, data: result };
       } catch (error) {
-        console.error('Failed to delete saved digest:', error);
+        safeLogger.error('Failed to delete saved digest:', error);
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     });
@@ -1080,7 +1153,7 @@ class FlowpadApp {
           if (model) {
             this.db.setSetting('ai_model', model);
           }
-          console.log(`AI配置已从环境变量加载: ${provider} (${model})`);
+          safeLogger.log(`AI配置已从环境变量加载: ${provider} (${model})`);
         }
       }
 
@@ -1088,7 +1161,7 @@ class FlowpadApp {
         this.aiService = new AIService({ provider, api_key, model: model || undefined });
       }
     } catch (error) {
-      console.error('Failed to initialize AI service:', error);
+      safeLogger.error('Failed to initialize AI service:', error);
     }
   }
 
@@ -1119,7 +1192,7 @@ class FlowpadApp {
       this.db.setSetting(key, value);
     } catch (error) {
       if (!(error instanceof Error && error.message.includes('The database connection is not open'))) {
-        console.error(`Failed to set ${key} setting:`, error);
+        safeLogger.error(`Failed to set ${key} setting:`, error);
       }
     }
   }
@@ -1132,11 +1205,11 @@ class FlowpadApp {
     if (this.floatingWindow && !this.floatingWindow.isDestroyed()) {
       this.floatingWindow.hide();
     }
-    console.log('所有窗口已隐藏');
+    safeLogger.log('所有窗口已隐藏');
   }
 
   private quit(): void {
-    console.log('正在退出应用...');
+    safeLogger.log('正在退出应用...');
     app.quit();
   }
 
@@ -1156,14 +1229,14 @@ class FlowpadApp {
 
   private showTodayDigest(): void {
     if (this.mainWindow && this.isInFullScreenEnvironment()) {
-      console.log('showTodayDigest: 检测到全屏环境，只导航不显示以保持全屏体验');
+      safeLogger.log('showTodayDigest: 检测到全屏环境，只导航不显示以保持全屏体验');
       // 直接发送导航消息，不显示窗口
       if (!this.mainWindow.isDestroyed() && !this.mainWindow.webContents.isDestroyed()) {
         try {
           this.mainWindow.webContents.send('navigate-to-digest');
-          console.log('今日总结页面导航完成（全屏模式）');
+          safeLogger.log('今日总结页面导航完成（全屏模式）');
         } catch (error) {
-          console.warn('Failed to navigate to digest in fullscreen mode:', error);
+          safeLogger.warn('Failed to navigate to digest in fullscreen mode:', error);
         }
       }
       return;
@@ -1176,13 +1249,40 @@ class FlowpadApp {
       try {
         this.mainWindow.webContents.send('navigate-to-digest');
       } catch (error) {
-        console.warn('Failed to navigate to digest:', error);
+        safeLogger.warn('Failed to navigate to digest:', error);
       }
     }
-    console.log('显示今日总结');
+    safeLogger.log('显示今日总结');
   }
 }
 
+// 确保应用可以在终端关闭后继续运行
+function setupProcessDetachment() {
+  // 忽略终端相关信号，防止应用意外退出
+  process.on('SIGHUP', () => {
+    safeLogger.log('收到SIGHUP信号，继续运行...');
+  });
+
+  process.on('SIGTERM', () => {
+    safeLogger.log('收到SIGTERM信号，继续运行...');
+  });
+
+  // 设置进程标题
+  process.title = 'Flowpad - AI记事本';
+
+  // 防止意外退出 - 确保应用在后台继续运行
+  process.on('uncaughtException', (error) => {
+    safeLogger.error('Uncaught Exception:', error);
+    // 不退出，继续运行
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    safeLogger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    // 不退出，继续运行
+  });
+}
+
 // 启动应用
+setupProcessDetachment();
 const flowpadApp = new FlowpadApp();
-flowpadApp.init().catch(console.error);
+flowpadApp.init().catch((error) => safeLogger.error('Failed to initialize Flowpad app:', error));

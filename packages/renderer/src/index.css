@@ -28,6 +28,35 @@
     mask: none;
     -webkit-mask: none;
   }
+
+  /* 浮窗拖动区域 - 使用 Electron 原生拖动 */
+  body.floating-window .drag-handle {
+    -webkit-app-region: drag;
+    will-change: transform;
+    backface-visibility: hidden;
+    transform: translateZ(0); /* 启用硬件加速 */
+  }
+
+  /* 浮窗收起状态的拖动区域 */
+  body.floating-window #floating-root {
+    -webkit-app-region: drag;
+    will-change: transform;
+    backface-visibility: hidden;
+    transform: translateZ(0); /* 启用硬件加速 */
+  }
+
+  /* 禁用内部按钮和输入框的拖动 */
+  body.floating-window button,
+  body.floating-window input,
+  body.floating-window textarea,
+  body.floating-window select {
+    -webkit-app-region: no-drag;
+  }
+
+  /* 消息区域禁用拖动 */
+  body.floating-window .messages-area {
+    -webkit-app-region: no-drag;
+  }
 }
 
 @layer components {

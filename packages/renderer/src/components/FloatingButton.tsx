@@ -25,8 +25,6 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
   ]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [isFocused, setIsFocused] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -286,73 +284,7 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
     }
   };
 
-  // 拖拽处理
-  const handleMouseDown = (e: React.MouseEvent) => {
-    // 在展开状态下，只有点击头部区域才能拖拽
-    const target = e.target as HTMLElement;
-    if (isExpanded && !target.closest('.drag-handle')) {
-      return;
-    }
 
-    setIsDragging(true);
-    setDragStart({
-      x: e.clientX,
-      y: e.clientY
-    });
-    e.preventDefault();
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isDragging) return;
-
-      const deltaX = e.clientX - dragStart.x;
-      const deltaY = e.clientY - dragStart.y;
-
-      // 获取当前屏幕位置并计算新位置
-      const currentX = window.screenX || 0;
-      const currentY = window.screenY || 0;
-      let newX = currentX + deltaX;
-      let newY = currentY + deltaY;
-
-      // 获取屏幕边界
-      const screenWidth = window.screen.availWidth;
-      const screenHeight = window.screen.availHeight;
-      const screenLeft = (window.screen as any).availLeft || 0;
-      const screenTop = (window.screen as any).availTop || 0;
-
-      // 获取窗口尺寸
-      const windowWidth = isExpanded ? 350 : 60;
-      const windowHeight = isExpanded ? 500 : 60;
-
-      // 应用边界约束
-      newX = Math.max(screenLeft, Math.min(newX, screenLeft + screenWidth - windowWidth));
-      newY = Math.max(screenTop, Math.min(newY, screenTop + screenHeight - windowHeight));
-
-      // 通过Electron API移动窗口到新的绝对位置
-      (window as any).electronAPI?.moveFloatingWindow?.(newX, newY);
-
-      // 更新拖拽起始点，为下次移动做准备
-      setDragStart({
-        x: e.clientX,
-        y: e.clientY
-      });
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
-
-    if (isDragging) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-    }
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging, dragStart]);
 
   // 检查并调整窗口位置以确保在屏幕边界内
   const adjustWindowPosition = (isExpanding: boolean) => {
@@ -432,7 +364,6 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
         {/* Header */}
         <div
           className="drag-handle"
-          onMouseDown={handleMouseDown}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -441,7 +372,7 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
             borderBottom: '1px solid #E5E7EB',
             borderRadius: '12px 12px 0 0',
             backgroundColor: '#F8F9FA',
-            cursor: isDragging ? 'grabbing' : 'grab'
+            cursor: 'grab'
           }}>
           <div style={{
             display: 'flex',
@@ -492,7 +423,7 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
         </div>
 
         {/* Messages Area */}
-        <div style={{
+        <div className="messages-area" style={{
           flex: 1,
           overflowY: 'auto',
           overflowX: 'hidden',
@@ -617,26 +548,23 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
     }}>
       <button
         onClick={handleClick}
-        onMouseDown={handleMouseDown}
         style={{
           width: '52px',
           height: '52px',
           borderRadius: '50%',
           backgroundColor: '#007AFF',
           border: '2px solid white',
-          cursor: isDragging ? 'grabbing' : 'pointer',
+          cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          boxShadow: isDragging
-            ? '0 8px 24px rgba(0,122,255,0.6)'
-            : '0 4px 16px rgba(0,122,255,0.4)',
+          boxShadow: '0 4px 16px rgba(0,122,255,0.4)',
           position: 'relative',
           zIndex: 999,
-          transform: isDragging ? 'scale(1.1)' : 'scale(1)',
-          transition: isDragging ? 'none' : 'all 0.2s ease'
+          transform: 'scale(1)',
+          transition: 'all 0.2s ease'
         }}
-        title={isDragging ? '拖拽移动窗口' : '点击打开 AI 聊天 | 拖拽移动窗口'}
+        title="点击打开 AI 聊天 | 拖拽移动窗口"
       >
         <MessageCircle
           size={24}

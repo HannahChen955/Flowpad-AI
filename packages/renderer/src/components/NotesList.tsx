@@ -100,7 +100,7 @@ const NoteItem = React.memo<NoteItemProps>(({ note, isSelected, onSelect, onDele
         </div>
       </div>
 
-      <p className="text-sm text-gray-800 line-clamp-3 mb-2">
+      <p className="text-sm text-gray-800 line-clamp-1 mb-2 truncate">
         {note.text}
       </p>
 
@@ -527,9 +527,10 @@ const NotesList: React.FC = () => {
   }
 
   return (
-    <div className="flex-1 flex">
+    <div className="flex-1 flex justify-center p-4">
+      <div className="w-full max-w-5xl flex flex-col lg:flex-row">
       {/* 笔记列表 */}
-      <div className="w-1/2 border-r border-gray-200 flex flex-col">
+      <div className="w-full lg:w-1/2 lg:border-r border-gray-200 flex flex-col lg:max-h-screen">
         <div className="p-4 border-b border-gray-200">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-medium text-gray-900">最近记录</h3>
@@ -809,7 +810,7 @@ const NotesList: React.FC = () => {
       </div>
 
       {/* 详情面板 */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col lg:max-h-screen min-h-0">
         {selectedNote ? (
           <>
             <div className="p-4 border-b border-gray-200">
@@ -937,9 +938,11 @@ const NotesList: React.FC = () => {
                     autoFocus
                   />
                 ) : (
-                  <p className="text-gray-800 whitespace-pre-wrap leading-relaxed">
-                    {selectedNote.text}
-                  </p>
+                  <div className="max-h-96 overflow-y-auto">
+                    <p className="text-gray-800 whitespace-pre-wrap leading-relaxed break-words max-w-prose">
+                      {selectedNote.text}
+                    </p>
+                  </div>
                 )}
               </div>
 
@@ -1001,7 +1004,7 @@ const NotesList: React.FC = () => {
                         onChange={(e) => setEditingCustomTag(e.target.value)}
                         placeholder="添加标签..."
                         className="flex-1 p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        onKeyPress={(e) => {
+                        onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             e.preventDefault();
                             const newTag = editingCustomTag.trim();
@@ -1074,6 +1077,7 @@ const NotesList: React.FC = () => {
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );
