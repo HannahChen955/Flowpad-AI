@@ -37,7 +37,8 @@ export class FlowpadDB {
         project_hint TEXT,
         type_hint TEXT,
         tags TEXT,
-        project_tag TEXT
+        project_tag TEXT,
+        status TEXT DEFAULT 'new'
       );
     `);
 
@@ -51,6 +52,13 @@ export class FlowpadDB {
     // 为现有的notes表添加project_tag列（如果不存在）
     try {
       this.db.exec(`ALTER TABLE notes ADD COLUMN project_tag TEXT;`);
+    } catch (error) {
+      // 列已存在，忽略错误
+    }
+
+    // 为现有的notes表添加status列（如果不存在）
+    try {
+      this.db.exec(`ALTER TABLE notes ADD COLUMN status TEXT DEFAULT 'new';`);
     } catch (error) {
       // 列已存在，忽略错误
     }
@@ -74,6 +82,17 @@ export class FlowpadDB {
       );
     `);
 
+    // 创建自定义标签表
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS custom_tags (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        color TEXT,
+        created_at TEXT NOT NULL,
+        used_count INTEGER DEFAULT 0
+      );
+    `);
+
     // 创建索引以提高查询性能 - 优化版本
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_notes_created_at ON notes(created_at DESC);
@@ -91,13 +110,13 @@ export class FlowpadDB {
   createNote(input: CreateNoteInput): Note {
     const id = uuidv4();
     const created_at = new Date().toISOString();
-    const project_hint = this.inferProjectHint(input.text, input.context);
+    const project_hint = undefined; // 不再自动生成项目提示，完全依赖用户标签
     const type_hint = input.type_hint || this.inferTypeHint(input.text);
     const tags = input.tags || [];
     const tagsJson = tags.length > 0 ? JSON.stringify(tags) : null;
 
-    // 从tags中提取项目标签（第一个标签作为项目标签）
-    const project_tag = tags.length > 0 ? tags[0] : null;
+    // 使用传入的项目标签，如果没有则为null
+    const project_tag = input.project_tag || null;
 
     const note: Note = {
       id,
@@ -110,11 +129,12 @@ export class FlowpadDB {
       type_hint,
       tags,
       project_tag: project_tag || undefined,
+      status: 'new',
     };
 
     const stmt = this.getOrCreateStatement(
       'createNote',
-      'INSERT INTO notes (id, text, created_at, app_name, window_title, url, project_hint, type_hint, tags, project_tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO notes (id, text, created_at, app_name, window_title, url, project_hint, type_hint, tags, project_tag, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
 
     stmt.run(
@@ -127,7 +147,8 @@ export class FlowpadDB {
       note.project_hint,
       note.type_hint,
       tagsJson,
-      project_tag
+      project_tag,
+      note.status
     );
 
     return note;
@@ -175,7 +196,8 @@ export class FlowpadDB {
     return {
       ...row,
       tags: row.tags ? JSON.parse(row.tags) : [],
-      project_tag: row.project_tag || undefined
+      project_tag: row.project_tag || undefined,
+      status: row.status || 'new'
     };
   }
 
@@ -228,6 +250,16 @@ export class FlowpadDB {
     );
     const tagsJson = JSON.stringify(tags);
     const result = stmt.run(tagsJson, id);
+    return result.changes > 0;
+  }
+
+  // 更新笔记状态
+  updateNoteStatus(id: string, status: string): boolean {
+    const stmt = this.getOrCreateStatement(
+      'updateNoteStatus',
+      'UPDATE notes SET status = ? WHERE id = ?'
+    );
+    const result = stmt.run(status, id);
     return result.changes > 0;
   }
 
@@ -390,6 +422,124 @@ export class FlowpadDB {
     );
     const result = stmt.run(id);
     return result.changes > 0;
+  }
+
+  // ==================== 自定义标签管理 ====================
+
+  // 创建自定义标签
+  createCustomTag(name: string, color?: string): { success: boolean; error?: string } {
+    try {
+      // 检查标签是否已存在
+      if (this.tagExists(name)) {
+        return { success: false, error: '标签名称已存在' };
+      }
+
+      const stmt = this.getOrCreateStatement(
+        'createCustomTag',
+        'INSERT INTO custom_tags (id, name, color, created_at) VALUES (?, ?, ?, ?)'
+      );
+      const id = uuidv4();
+      const created_at = new Date().toISOString();
+      stmt.run(id, name, color || '#3B82F6', created_at);
+      return { success: true };
+    } catch (error) {
+      console.error('创建自定义标签失败:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('UNIQUE constraint failed')) {
+        return { success: false, error: '标签名称已存在' };
+      }
+      return { success: false, error: '数据库操作失败' };
+    }
+  }
+
+  // 获取所有自定义标签
+  getCustomTags(): Array<{id: string, name: string, color: string, created_at: string, used_count: number}> {
+    const stmt = this.getOrCreateStatement(
+      'getCustomTags',
+      'SELECT * FROM custom_tags ORDER BY used_count DESC, created_at DESC'
+    );
+    return stmt.all() as Array<{id: string, name: string, color: string, created_at: string, used_count: number}>;
+  }
+
+  // 删除自定义标签
+  deleteCustomTag(id: string): boolean {
+    const stmt = this.getOrCreateStatement(
+      'deleteCustomTag',
+      'DELETE FROM custom_tags WHERE id = ?'
+    );
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+
+  // 更新标签使用次数
+  incrementTagUsage(tagName: string): void {
+    try {
+      const stmt = this.getOrCreateStatement(
+        'incrementTagUsage',
+        'UPDATE custom_tags SET used_count = used_count + 1 WHERE name = ?'
+      );
+      stmt.run(tagName);
+    } catch (error) {
+      // 标签不存在时忽略错误
+    }
+  }
+
+  // 检查标签是否存在
+  tagExists(name: string): boolean {
+    const stmt = this.getOrCreateStatement(
+      'tagExists',
+      'SELECT COUNT(*) as count FROM custom_tags WHERE name = ?'
+    );
+    const result = stmt.get(name) as { count: number };
+    return result.count > 0;
+  }
+
+  // 清理7天前标记为完成的笔记
+  cleanupCompletedNotes(): { success: boolean; deletedCount: number; error?: string } {
+    try {
+      // 计算7天前的日期
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const cutoffDate = sevenDaysAgo.toISOString();
+
+      // 查找7天前标记为完成的笔记（status为'closed'的笔记）
+      const findStmt = this.getOrCreateStatement(
+        'findCompletedNotes',
+        `SELECT id FROM notes
+         WHERE created_at < ?
+         AND status = 'closed'`
+      );
+      const completedNotes = findStmt.all(cutoffDate) as { id: string }[];
+
+      if (completedNotes.length === 0) {
+        return { success: true, deletedCount: 0 };
+      }
+
+      // 删除这些笔记
+      const deleteStmt = this.getOrCreateStatement(
+        'deleteCompletedNotes',
+        'DELETE FROM notes WHERE id = ?'
+      );
+
+      let deletedCount = 0;
+      for (const note of completedNotes) {
+        const result = deleteStmt.run(note.id);
+        if (result.changes > 0) {
+          deletedCount++;
+        }
+      }
+
+      console.log(`清理完成：删除了 ${deletedCount} 条7天前的已完成笔记`);
+      return { success: true, deletedCount };
+
+    } catch (error) {
+      console.error('清理已完成笔记失败:', error);
+      return {
+        success: false,
+        deletedCount: 0,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
   }
 
   // 关闭数据库连接 - 优化版本

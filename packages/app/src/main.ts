@@ -129,6 +129,9 @@ class FlowpadApp {
 
     // 初始化AI服务（如果有配置）
     this.initAIService();
+
+    // 启动时清理已完成的旧笔记
+    this.setupCleanupTasks();
   }
 
   // 状态管理方法
@@ -841,6 +844,17 @@ class FlowpadApp {
       }
     });
 
+    // 更新笔记状态
+    ipcMain.handle('update-note-status', async (_, id: string, status: string) => {
+      try {
+        const success = this.db.updateNoteStatus(id, status);
+        return { success, data: success };
+      } catch (error) {
+        safeLogger.error('Failed to update note status:', error);
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    });
+
     // AI内容优化
     ipcMain.handle('optimize-content', async (_, rawContent: string) => {
       try {
@@ -1126,6 +1140,47 @@ class FlowpadApp {
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     });
+
+    // 自定义标签管理 IPC 接口
+    ipcMain.handle('create-custom-tag', async (_, name: string, color?: string) => {
+      try {
+        const result = this.db.createCustomTag(name, color);
+        return result;
+      } catch (error) {
+        safeLogger.error('Failed to create custom tag:', error);
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    });
+
+    ipcMain.handle('get-custom-tags', async () => {
+      try {
+        const tags = this.db.getCustomTags();
+        return { success: true, data: tags };
+      } catch (error) {
+        safeLogger.error('Failed to get custom tags:', error);
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    });
+
+    ipcMain.handle('delete-custom-tag', async (_, id: string) => {
+      try {
+        const success = this.db.deleteCustomTag(id);
+        return { success, data: success };
+      } catch (error) {
+        safeLogger.error('Failed to delete custom tag:', error);
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    });
+
+    ipcMain.handle('check-tag-exists', async (_, name: string) => {
+      try {
+        const exists = this.db.tagExists(name);
+        return { success: true, data: exists };
+      } catch (error) {
+        safeLogger.error('Failed to check tag exists:', error);
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    });
   }
 
   private initAIService(): void {
@@ -1184,6 +1239,53 @@ class FlowpadApp {
       globalShortcut.unregisterAll();
       this.db.close();
     });
+  }
+
+  // 设置清理任务
+  private setupCleanupTasks(): void {
+    try {
+      // 立即执行一次清理
+      const result = this.db.cleanupCompletedNotes();
+      if (result.success && result.deletedCount > 0) {
+        safeLogger.log(`启动清理完成：删除了 ${result.deletedCount} 条已完成的旧笔记`);
+      }
+
+      // 设置每24小时执行一次清理（在每天凌晨2点执行）
+      const scheduleNextCleanup = () => {
+        const now = new Date();
+        const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 2, 0, 0); // 明天凌晨2点
+        const msUntilNextCleanup = tomorrow.getTime() - now.getTime();
+
+        setTimeout(() => {
+          try {
+            const result = this.db.cleanupCompletedNotes();
+            if (result.success && result.deletedCount > 0) {
+              safeLogger.log(`定时清理完成：删除了 ${result.deletedCount} 条已完成的旧笔记`);
+            }
+          } catch (error) {
+            safeLogger.error('定时清理失败:', error);
+          }
+
+          // 设置下一次清理（24小时后）
+          setInterval(() => {
+            try {
+              const result = this.db.cleanupCompletedNotes();
+              if (result.success && result.deletedCount > 0) {
+                safeLogger.log(`定时清理完成：删除了 ${result.deletedCount} 条已完成的旧笔记`);
+              }
+            } catch (error) {
+              safeLogger.error('定时清理失败:', error);
+            }
+          }, 24 * 60 * 60 * 1000); // 24小时
+        }, msUntilNextCleanup);
+      };
+
+      scheduleNextCleanup();
+      safeLogger.log('已完成笔记自动清理任务设置完成（保留期：7天）');
+
+    } catch (error) {
+      safeLogger.error('设置清理任务失败:', error);
+    }
   }
 
   // 安全设置数据库的辅助方法

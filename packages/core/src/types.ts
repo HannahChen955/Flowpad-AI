@@ -9,6 +9,7 @@ export interface Note {
   type_hint?: string;
   tags?: string[];
   project_tag?: string;
+  status?: string;
 }
 
 export interface Settings {
@@ -27,6 +28,7 @@ export interface CreateNoteInput {
   context?: Context;
   type_hint?: string;
   tags?: string[];
+  project_tag?: string;
 }
 
 export interface AIConfig {

@@ -10,6 +10,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteNote: (id: string) => ipcRenderer.invoke('delete-note', id),
   updateNote: (id: string, text: string) => ipcRenderer.invoke('update-note', id, text),
   updateNoteTags: (id: string, tags: string[]) => ipcRenderer.invoke('update-note-tags', id, tags),
+  updateNoteStatus: (id: string, status: string) => ipcRenderer.invoke('update-note-status', id, status),
+
+  // 自定义标签相关API
+  createCustomTag: (name: string, color?: string) => ipcRenderer.invoke('create-custom-tag', name, color),
+  getCustomTags: () => ipcRenderer.invoke('get-custom-tags'),
+  deleteCustomTag: (id: string) => ipcRenderer.invoke('delete-custom-tag', id),
 
   // AI相关API
   optimizeContent: (rawContent: string) => ipcRenderer.invoke('optimize-content', rawContent),
@@ -83,6 +89,10 @@ declare global {
       getTodayNotes: () => Promise<{success: boolean; data?: Note[]; error?: string}>;
       deleteNote: (id: string) => Promise<{success: boolean; data?: boolean; error?: string}>;
       updateNote: (id: string, text: string) => Promise<{success: boolean; data?: boolean; error?: string}>;
+      updateNoteStatus: (id: string, status: string) => Promise<{success: boolean; data?: boolean; error?: string}>;
+      createCustomTag: (name: string, color?: string) => Promise<{success: boolean; data?: any; error?: string}>;
+      getCustomTags: () => Promise<{success: boolean; data?: any[]; error?: string}>;
+      deleteCustomTag: (id: string) => Promise<{success: boolean; data?: boolean; error?: string}>;
       generateDailyDigest: () => Promise<{success: boolean; data?: string; error?: string}>;
       setAIConfig: (config: AIConfig) => Promise<{success: boolean; data?: boolean; error?: string}>;
       getAIConfig: () => Promise<{success: boolean; data?: AIConfig | null; error?: string}>;

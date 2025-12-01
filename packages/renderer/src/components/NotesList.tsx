@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
-import { Trash2, Monitor, Clock, Tag, FileText, Edit3, Save, X, ListChecks, AlertCircle, Lightbulb, Heart, Filter, Plus, Send, FolderOpen, Copy, Sparkles } from 'lucide-react';
+import { Trash2, Monitor, Clock, Tag, FileText, Edit3, Save, X, ListChecks, AlertCircle, Lightbulb, Heart, Filter, Plus, Send, FolderOpen, Copy, Sparkles, Settings, Hash } from 'lucide-react';
 import { Note } from '../../../core/src/index';
 
 // 优化的笔记项组件
@@ -13,7 +13,7 @@ interface NoteItemProps {
   onStatusChange: (id: string, newStatus: string) => void;
   getTypeColor: (type?: string) => string;
   getTypeName: (type?: string) => string;
-  getStatusInfo: (tags?: string[]) => { status: string; color: string };
+  getStatusInfo: (status?: string) => { status: string; color: string };
 }
 
 const NoteItem = React.memo<NoteItemProps>(({ note, isSelected, onSelect, onDelete, onStatusChange, getTypeColor, getTypeName, getStatusInfo }) => {
@@ -30,7 +30,7 @@ const NoteItem = React.memo<NoteItemProps>(({ note, isSelected, onSelect, onDele
 
   const handleStatusClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation(); // 阻止选择事件
-    const statusInfo = getStatusInfo(note.tags);
+    const statusInfo = getStatusInfo(note.status);
     const currentStatus = statusInfo.status;
 
     // 状态循环: 新增 -> 进行中 -> 已完成 -> 新增
@@ -42,7 +42,7 @@ const NoteItem = React.memo<NoteItemProps>(({ note, isSelected, onSelect, onDele
 
     const nextStatus = statusCycle[currentStatus as keyof typeof statusCycle] || 'ongoing';
     onStatusChange(note.id, nextStatus);
-  }, [note.id, note.tags, onStatusChange, getStatusInfo]);
+  }, [note.id, note.status, onStatusChange, getStatusInfo]);
 
   const formattedTime = useMemo(() => {
     return format(new Date(note.created_at), 'HH:mm', { locale: zhCN });
@@ -67,10 +67,10 @@ const NoteItem = React.memo<NoteItemProps>(({ note, isSelected, onSelect, onDele
           {note.type_hint === 'todo' && (
             <button
               onClick={handleStatusClick}
-              className={`text-xs px-2 py-1 rounded-full border transition-colors hover:opacity-80 font-medium ${getStatusInfo(note.tags).color}`}
+              className={`text-xs px-2 py-1 rounded-full border transition-colors hover:opacity-80 font-medium ${getStatusInfo(note.status).color}`}
               title="点击切换状态"
             >
-              {getStatusInfo(note.tags).status}
+              {getStatusInfo(note.status).status}
             </button>
           )}
         </div>
@@ -98,15 +98,15 @@ const NoteItem = React.memo<NoteItemProps>(({ note, isSelected, onSelect, onDele
 
       {/* 标签区域 */}
       {((note.project_hint) || (note.tags && note.tags.length > 0)) && (
-        <div className="flex items-center space-x-2 flex-wrap gap-y-2 mb-3">
+        <div className="flex items-center flex-wrap gap-1 mb-2">
           {note.project_hint && (
-            <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-800 font-medium">
-              项目: {note.project_hint}
+            <span className="text-xs px-1 py-0.5 rounded text-xs bg-green-100 text-green-800 font-normal" style={{fontSize: '10px'}}>
+              {note.project_hint}
             </span>
           )}
           {note.tags && note.tags.length > 0 && (
             note.tags.map((tag, index) => (
-              <span key={index} className="text-xs px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200 font-medium">
+              <span key={index} className="text-xs px-1 py-0.5 rounded bg-indigo-100 text-indigo-700 font-normal" style={{fontSize: '10px'}}>
                 #{tag}
               </span>
             ))
@@ -158,8 +158,16 @@ const NotesList: React.FC = () => {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isDetailOptimizing, setIsDetailOptimizing] = useState(false);
 
+  // 自定义标签管理状态
+  const [showTagManager, setShowTagManager] = useState(false);
+  const [customTags, setCustomTags] = useState<Array<{id: string, name: string, color: string, used_count: number}>>([]);
+  const [newTagName, setNewTagName] = useState('');
+  const [newTagColor, setNewTagColor] = useState('#3B82F6');
+  const [showColorPicker, setShowColorPicker] = useState(false);
+
   useEffect(() => {
     loadNotes();
+    loadCustomTags();
 
     // 监听新笔记创建事件
     const handler = (window as any).electronAPI?.onNoteCreated?.((newNote: Note) => {
@@ -187,6 +195,54 @@ const NotesList: React.FC = () => {
       setLoading(false);
     }
   }, []);
+
+  // 加载自定义标签
+  const loadCustomTags = useCallback(async () => {
+    try {
+      const result = await (window as any).electronAPI.getCustomTags();
+      if (result.success) {
+        setCustomTags(result.data);
+      }
+    } catch (error) {
+      console.error('Failed to load custom tags:', error);
+    }
+  }, []);
+
+  // 创建自定义标签
+  const createCustomTag = useCallback(async () => {
+    if (!newTagName.trim()) return;
+
+    try {
+      const result = await (window as any).electronAPI.createCustomTag(newTagName.trim(), newTagColor);
+      if (result.success) {
+        setNewTagName('');
+        setNewTagColor('#3B82F6');
+        loadCustomTags(); // 重新加载标签列表
+      } else {
+        alert('创建标签失败：' + result.error);
+      }
+    } catch (error) {
+      console.error('Failed to create custom tag:', error);
+      alert('创建标签失败，请重试');
+    }
+  }, [newTagName, newTagColor, loadCustomTags]);
+
+  // 删除自定义标签
+  const deleteCustomTag = useCallback(async (id: string) => {
+    if (!confirm('确定要删除这个标签吗？')) return;
+
+    try {
+      const result = await (window as any).electronAPI.deleteCustomTag(id);
+      if (result.success) {
+        loadCustomTags(); // 重新加载标签列表
+      } else {
+        alert('删除标签失败：' + result.error);
+      }
+    } catch (error) {
+      console.error('Failed to delete custom tag:', error);
+      alert('删除标签失败，请重试');
+    }
+  }, [loadCustomTags]);
 
   const handleDeleteNote = useCallback(async (id: string) => {
     try {
@@ -229,21 +285,15 @@ const NotesList: React.FC = () => {
   }, [typeNameMap]);
 
   // 状态信息获取函数
-  const getStatusInfo = useCallback((tags?: string[]) => {
-    if (!tags || tags.length === 0) {
-      return { status: '新增', color: 'bg-blue-100 text-blue-700 border-blue-300' };
+  const getStatusInfo = useCallback((status?: string) => {
+    switch (status) {
+      case 'ongoing':
+        return { status: '进行中', color: 'bg-yellow-100 text-yellow-700 border-yellow-300' };
+      case 'closed':
+        return { status: '已完成', color: 'bg-green-100 text-green-700 border-green-300' };
+      default:
+        return { status: '新增', color: 'bg-blue-100 text-blue-700 border-blue-300' };
     }
-
-    // 检查状态标签
-    if (tags.includes('ongoing')) {
-      return { status: '进行中', color: 'bg-yellow-100 text-yellow-700 border-yellow-300' };
-    }
-    if (tags.includes('closed')) {
-      return { status: '已完成', color: 'bg-green-100 text-green-700 border-green-300' };
-    }
-
-    // 默认为新增状态
-    return { status: '新增', color: 'bg-blue-100 text-blue-700 border-blue-300' };
   }, []);
 
   // 状态变更处理函数
@@ -253,25 +303,12 @@ const NotesList: React.FC = () => {
       const currentNote = notes.find(note => note.id === id);
       if (!currentNote) return;
 
-      // 构建新的标签数组
-      let newTags = [...(currentNote.tags || [])];
-
-      // 移除现有的状态标签
-      newTags = newTags.filter(tag => !['ongoing', 'closed'].includes(tag));
-
-      // 添加新的状态标签（如果不是默认的"新增"状态）
-      if (newStatus === 'ongoing') {
-        newTags.push('ongoing');
-      } else if (newStatus === 'closed') {
-        newTags.push('closed');
-      }
-
-      // 使用新的updateNoteTags API更新标签
-      const result = await window.electronAPI.updateNoteTags(id, newTags);
+      // 使用新的updateNoteStatus API更新状态
+      const result = await (window as any).electronAPI.updateNoteStatus(id, newStatus);
 
       if (result.success) {
         // 更新本地状态
-        const updatedNote = { ...currentNote, tags: newTags };
+        const updatedNote = { ...currentNote, status: newStatus };
         setNotes(prevNotes =>
           prevNotes.map(note =>
             note.id === id ? updatedNote : note
@@ -422,21 +459,14 @@ const NotesList: React.FC = () => {
     }
   }, [selectedNote]);
 
-  // 加载可用的项目标签
+  // 加载可用的项目标签 - 从自定义标签中获取
   const loadAvailableProjects = useCallback(async () => {
     try {
-      const result = await window.electronAPI.getNotes();
+      // 获取用户创建的自定义标签
+      const result = await (window as any).electronAPI.getCustomTags();
       if (result.success && result.data) {
-        const projects = new Set<string>();
-        result.data.forEach((note: Note) => {
-          if (note.project_tag && note.project_tag !== 'general') {
-            projects.add(note.project_tag);
-          }
-          if (note.tags && note.tags.length > 0) {
-            note.tags.forEach((tag: string) => projects.add(tag));
-          }
-        });
-        setAvailableProjects(Array.from(projects).sort());
+        const projects = result.data.map((tag: any) => tag.name);
+        setAvailableProjects(projects.sort());
       }
     } catch (error) {
       console.error('Failed to load available projects:', error);
@@ -555,6 +585,14 @@ const NotesList: React.FC = () => {
               >
                 <Plus className="w-4 h-4" />
                 <span>新建</span>
+              </button>
+              <button
+                onClick={() => setShowTagManager(!showTagManager)}
+                className="flex items-center space-x-1 text-purple-600 hover:text-purple-700 transition-colors text-sm px-2 py-1 hover:bg-purple-50 rounded"
+                title="标签管理"
+              >
+                <Settings className="w-4 h-4" />
+                <span>标签</span>
               </button>
               <span className="text-sm text-gray-500">{filteredNotes.length} 条记录</span>
               <button
@@ -829,14 +867,14 @@ const NotesList: React.FC = () => {
             <div className="p-4 border-b border-gray-200">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <div className="flex items-center space-x-2 mb-2 flex-wrap">
-                    <span className={`text-xs px-2 py-1 rounded-full ${getTypeColor(selectedNote.type_hint)}`}>
+                  <div className="flex items-center flex-wrap gap-1 mb-2">
+                    <span className={`px-1 py-0.5 rounded font-normal ${getTypeColor(selectedNote.type_hint)}`} style={{fontSize: '10px'}}>
                       {getTypeName(selectedNote.type_hint)}
                     </span>
                     {selectedNote.type_hint === 'todo' && (
                       <button
                         onClick={() => {
-                          const statusInfo = getStatusInfo(selectedNote.tags);
+                          const statusInfo = getStatusInfo(selectedNote.status);
                           const currentStatus = statusInfo.status;
                           const statusCycle = {
                             '新增': 'ongoing',
@@ -846,20 +884,21 @@ const NotesList: React.FC = () => {
                           const nextStatus = statusCycle[currentStatus as keyof typeof statusCycle] || 'ongoing';
                           handleStatusChange(selectedNote.id, nextStatus);
                         }}
-                        className={`text-xs px-2 py-1 rounded-full border transition-colors hover:opacity-80 ${getStatusInfo(selectedNote.tags).color}`}
+                        className={`px-1 py-0.5 rounded border transition-colors hover:opacity-80 font-normal ${getStatusInfo(selectedNote.status).color}`}
+                        style={{fontSize: '10px'}}
                         title="点击切换状态"
                       >
-                        {getStatusInfo(selectedNote.tags).status}
+                        {getStatusInfo(selectedNote.status).status}
                       </button>
                     )}
                     {selectedNote.project_hint && (
-                      <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-800">
+                      <span className="px-1 py-0.5 rounded bg-green-100 text-green-800 font-normal" style={{fontSize: '10px'}}>
                         {selectedNote.project_hint}
                       </span>
                     )}
                     {selectedNote.tags && selectedNote.tags.length > 0 && (
                       selectedNote.tags.map((tag, index) => (
-                        <span key={index} className="text-xs px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">
+                        <span key={index} className="px-1 py-0.5 rounded bg-indigo-100 text-indigo-700 font-normal" style={{fontSize: '10px'}}>
                           #{tag}
                         </span>
                       ))
@@ -1092,6 +1131,139 @@ const NotesList: React.FC = () => {
         )}
       </div>
       </div>
+
+      {/* 标签管理模态框 */}
+      {showTagManager && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[80vh] overflow-hidden">
+            {/* 模态框头部 */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h3 className="text-lg font-medium text-gray-900 flex items-center">
+                <Hash className="w-5 h-5 mr-2 text-purple-600" />
+                标签管理
+              </h3>
+              <button
+                onClick={() => setShowTagManager(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 模态框内容 */}
+            <div className="p-6 max-h-96 overflow-y-auto">
+              {/* 创建新标签 */}
+              <div className="mb-6">
+                <h4 className="text-sm font-medium text-gray-700 mb-3">创建新标签</h4>
+                <div className="flex items-center space-x-3 mb-3">
+                  <input
+                    type="text"
+                    value={newTagName}
+                    onChange={(e) => setNewTagName(e.target.value)}
+                    placeholder="标签名称"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newTagName.trim()) {
+                        createCustomTag();
+                      }
+                    }}
+                  />
+                  {/* 颜色选择器 - 新设计 */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowColorPicker(!showColorPicker)}
+                      className="w-10 h-10 rounded-lg border-2 border-gray-300 hover:border-gray-400 transition-all shadow-sm relative flex items-center justify-center group"
+                      style={{ backgroundColor: newTagColor }}
+                      title="选择颜色"
+                    >
+                      <div className="absolute inset-1 rounded-md border border-white/30"></div>
+                      <span className="text-white text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity">●</span>
+                    </button>
+                    {showColorPicker && (
+                      <>
+                        {/* 点击外部关闭 */}
+                        <div
+                          className="fixed inset-0 z-10"
+                          onClick={() => setShowColorPicker(false)}
+                        />
+                        {/* 颜色选择面板 */}
+                        <div className="absolute top-12 left-0 z-20 bg-white border border-gray-200 rounded-lg shadow-lg p-3 min-w-max">
+                          <div className="text-xs text-gray-600 mb-2 font-medium">选择颜色</div>
+                          <div className="grid grid-cols-3 gap-2">
+                            {['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#6B7280'].map((color) => (
+                              <button
+                                key={color}
+                                type="button"
+                                onClick={() => {
+                                  setNewTagColor(color);
+                                  setShowColorPicker(false);
+                                }}
+                                className={`w-8 h-8 rounded-lg border-2 transition-all hover:scale-105 ${
+                                  newTagColor === color
+                                    ? 'border-gray-600 shadow-md'
+                                    : 'border-gray-200 hover:border-gray-300'
+                                }`}
+                                style={{ backgroundColor: color }}
+                                title={color}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <button
+                    onClick={createCustomTag}
+                    disabled={!newTagName.trim()}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    添加
+                  </button>
+                </div>
+              </div>
+
+              {/* 现有标签列表 */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-3">现有标签 ({customTags.length})</h4>
+                {customTags.length === 0 ? (
+                  <p className="text-gray-500 text-center py-4">暂无自定义标签</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {customTags.map((tag) => (
+                      <div
+                        key={tag.id}
+                        className="flex items-center bg-gray-50 rounded px-2 py-1 group relative"
+                      >
+                        <div className="flex items-center space-x-1">
+                          <div
+                            className="w-2 h-2 rounded"
+                            style={{ backgroundColor: tag.color }}
+                          />
+                          <span style={{fontSize: '11px'}} className="font-normal text-gray-900">{tag.name}</span>
+                          <span style={{fontSize: '9px'}} className="text-gray-500">({tag.used_count})</span>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (window.confirm(`确定要删除标签"${tag.name}"吗？`)) {
+                              deleteCustomTag(tag.id);
+                            }
+                          }}
+                          className="ml-1 text-red-500 hover:text-red-700 transition-colors opacity-0 group-hover:opacity-100"
+                          title="删除标签"
+                        >
+                          <Trash2 className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

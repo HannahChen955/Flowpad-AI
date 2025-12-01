@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
-import { MessageCircle, Send, Minimize2, Trash2 } from 'lucide-react';
+import { MessageCircle, Send, Minimize2, Trash2, ListChecks, AlertCircle, Lightbulb, Heart, FileText } from 'lucide-react';
 
 interface FloatingButtonProps {
   onPositionChange?: (x: number, y: number) => void;
@@ -26,8 +26,51 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [selectedProject, setSelectedProject] = useState('');
+  const [availableProjects, setAvailableProjects] = useState<string[]>([]);
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // 分类定义
+  const categories = [
+    { id: 'todo', name: '待办', icon: ListChecks, color: 'bg-blue-100 text-blue-700' },
+    { id: 'issue', name: '问题', icon: AlertCircle, color: 'bg-red-100 text-red-700' },
+    { id: 'idea', name: '想法', icon: Lightbulb, color: 'bg-yellow-100 text-yellow-700' },
+    { id: 'feeling', name: '感受', icon: Heart, color: 'bg-purple-100 text-purple-700' },
+    { id: 'note', name: '笔记', icon: FileText, color: 'bg-gray-100 text-gray-700' },
+  ];
+
+  // 自动调整输入框高度
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+      const scrollHeight = inputRef.current.scrollHeight;
+      const maxHeight = 120; // 对应maxHeight样式
+      inputRef.current.style.height = Math.min(scrollHeight, maxHeight) + 'px';
+      inputRef.current.style.overflow = scrollHeight > maxHeight ? 'auto' : 'hidden';
+    }
+  }, [inputText]);
+
+  // 加载可用的项目标签 - 从自定义标签中获取
+  useEffect(() => {
+    const loadAvailableProjects = async () => {
+      try {
+        // 获取用户创建的自定义标签
+        const result = await (window as any).electronAPI?.getCustomTags();
+        if (result?.success && result.data) {
+          const projects = result.data.map((tag: any) => tag.name);
+          setAvailableProjects(projects.sort());
+        }
+      } catch (error) {
+        console.error('Failed to load available projects:', error);
+      }
+    };
+
+    loadAvailableProjects();
+  }, []);
 
   // 自动滚动到最底部，优化以减少重渲染
   useEffect(() => {
@@ -84,6 +127,26 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
     return 'other';
   };
 
+  // 创建新项目
+  const handleCreateProject = () => {
+    if (!newProjectName.trim()) return;
+
+    const projectName = newProjectName.trim();
+
+    // 添加到可用项目列表
+    setAvailableProjects(prev => {
+      const newProjects = [...prev, projectName].sort();
+      return newProjects;
+    });
+
+    // 选中新创建的项目
+    setSelectedProject(projectName);
+
+    // 重置状态
+    setIsCreatingProject(false);
+    setNewProjectName('');
+  };
+
   // 简化的智能标签识别函数
   const parseSmartTags = (text: string) => {
     const tags: string[] = [];
@@ -123,20 +186,14 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
       // 智能标签识别
       const smartTags = parseSmartTags(content);
 
-      // 基础标签 + 智能识别标签
-      const tags = ['AI-聊天', '浮窗自动创建', ...smartTags];
-      let type_hint = undefined;
-
-      // 根据消息类型判断是否为待办任务
-      if (detectMessageType(content) === 'task') {
-        type_hint = 'todo';
-        // 待办默认为新增状态，不需要额外的状态标签
-      }
+      // 使用用户选择的分类作为类型提示
+      const type_hint = selectedCategory || undefined;
 
       const result = await (window as any).electronAPI?.createNote({
         text: content,
         type_hint,
-        tags
+        tags: smartTags,
+        project_tag: selectedProject || undefined
       });
 
       if (result?.success) {
@@ -234,26 +291,29 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
       setIsFocused(false);
     }
 
-    // 检测消息类型并处理
-    const messageType = detectMessageType(currentInput);
+    // 检查是否需要创建记录 - 只有选择了"待办"分类才创建记录
+    const shouldCreateRecord = selectedCategory === 'todo';
     let responseText = '';
     let recordCreated = false;
 
     try {
-      if (messageType === 'question') {
-        // 问答类请求 - 直接回答
-        responseText = await handleQuestionRequest(currentInput);
-      } else if (messageType === 'task') {
-        // 任务类请求 - 创建记录
+      if (shouldCreateRecord) {
+        // 用户选择了待办分类 - 创建记录
         recordCreated = await createNoteFromChat(currentInput);
         if (recordCreated) {
-          responseText = '✅ 我已为您创建了这个任务记录，您可以在"我的记录"中查看和管理。';
+          responseText = '✅ 我已为您创建了这个待办记录，您可以在"我的记录"中查看和管理。';
         } else {
-          responseText = '⚠️ 创建任务记录时遇到问题，请您手动在主应用中添加。';
+          responseText = '⚠️ 创建待办记录时遇到问题，请您手动在主应用中添加。';
         }
       } else {
-        // 其他类型 - 友好回复
-        responseText = '收到您的消息！我会尽力帮助您。如果您有具体问题可以直接询问，或者说出需要记录的任务我可以帮您保存。';
+        // 普通AI对话 - 不创建记录，直接回答问题
+        const messageType = detectMessageType(currentInput);
+        if (messageType === 'question') {
+          responseText = await handleQuestionRequest(currentInput);
+        } else {
+          // 对于非问题的对话，也用AI回复
+          responseText = await handleQuestionRequest(currentInput);
+        }
       }
 
       const aiMessage: Message = {
@@ -277,7 +337,7 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
     }
   }, [inputText]); // useCallback 依赖项
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
@@ -368,37 +428,54 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '12px 16px',
+            padding: '16px 20px',
             borderBottom: '1px solid #E5E7EB',
             borderRadius: '12px 12px 0 0',
-            backgroundColor: '#F8F9FA',
-            cursor: 'grab'
+            backgroundColor: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            cursor: 'grab',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
           }}>
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '8px'
+            gap: '10px'
           }}>
-            <MessageCircle size={20} color="#007AFF" />
+            <div style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '8px',
+              backgroundColor: 'rgba(255, 255, 255, 0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <MessageCircle size={18} color="white" />
+            </div>
             <span style={{
               fontWeight: '600',
               fontSize: '16px',
-              color: '#1F2937'
-            }}>AI 助手</span>
+              color: 'white',
+              letterSpacing: '-0.01em'
+            }}>AI 智能助手</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <button
               onClick={clearChatHistory}
               style={{
-                background: 'none',
+                background: 'rgba(255, 255, 255, 0.2)',
                 border: 'none',
                 cursor: 'pointer',
-                padding: '4px',
-                borderRadius: '4px',
+                padding: '6px',
+                borderRadius: '6px',
                 display: 'flex',
                 alignItems: 'center',
-                color: '#6B7280'
+                color: 'white',
+                transition: 'all 0.2s',
+                opacity: '0.8'
               }}
+              onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+              onMouseLeave={(e) => e.currentTarget.style.opacity = '0.8'}
               title="清除聊天记录"
             >
               <Trash2 size={14} />
@@ -406,15 +483,19 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
             <button
               onClick={handleClick}
               style={{
-                background: 'none',
+                background: 'rgba(255, 255, 255, 0.2)',
                 border: 'none',
                 cursor: 'pointer',
-                padding: '4px',
-                borderRadius: '4px',
+                padding: '6px',
+                borderRadius: '6px',
                 display: 'flex',
                 alignItems: 'center',
-                color: '#6B7280'
+                color: 'white',
+                transition: 'all 0.2s',
+                opacity: '0.8'
               }}
+              onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+              onMouseLeave={(e) => e.currentTarget.style.opacity = '0.8'}
               title="最小化"
             >
               <Minimize2 size={16} />
@@ -427,12 +508,13 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
           flex: 1,
           overflowY: 'auto',
           overflowX: 'hidden',
-          padding: '12px',
+          padding: '16px 20px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '8px',
+          gap: '12px',
           maxHeight: '320px', // 限制最大高度确保滚动正常工作
-          scrollBehavior: 'smooth'
+          scrollBehavior: 'smooth',
+          backgroundColor: '#F8F9FA'
         }}>
           {messages.map((message) => (
             <div
@@ -443,14 +525,23 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
               }}
             >
               <div style={{
-                maxWidth: '75%',
-                padding: '8px 12px',
-                borderRadius: message.isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-                backgroundColor: message.isUser ? '#007AFF' : '#F3F4F6',
+                maxWidth: '80%',
+                padding: '12px 16px',
+                borderRadius: message.isUser ? '18px 18px 12px 18px' : '18px 18px 18px 12px',
+                backgroundColor: message.isUser ?
+                  'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' :
+                  'white',
+                background: message.isUser ?
+                  'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' :
+                  'white',
                 color: message.isUser ? 'white' : '#1F2937',
                 fontSize: '14px',
-                lineHeight: '1.4',
-                wordWrap: 'break-word'
+                lineHeight: '1.5',
+                wordWrap: 'break-word',
+                boxShadow: message.isUser ?
+                  '0 2px 8px rgba(102, 126, 234, 0.3)' :
+                  '0 2px 8px rgba(0, 0, 0, 0.1)',
+                border: message.isUser ? 'none' : '1px solid #E5E7EB'
               }}>
                 {message.text}
               </div>
@@ -464,7 +555,7 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
             }}>
               <div style={{
                 padding: '8px 12px',
-                borderRadius: '16px 16px 16px 4px',
+                borderRadius: '16px 16px 16px 10px',
                 backgroundColor: '#F3F4F6',
                 color: '#6B7280',
                 fontSize: '14px',
@@ -480,51 +571,238 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
 
         {/* Input Area */}
         <div style={{
-          padding: '12px',
+          padding: '16px 20px 20px 20px',
           borderTop: '1px solid #E5E7EB',
-          borderRadius: '0 0 12px 12px'
+          borderRadius: '0 0 12px 12px',
+          backgroundColor: 'white'
         }}>
+          {/* 分类选择器 */}
+          <div style={{ marginBottom: '10px' }}>
+            <div style={{
+              fontSize: '10px',
+              color: '#6B7280',
+              marginBottom: '4px',
+              fontWeight: '500'
+            }}>分类：</div>
+            <div style={{
+              display: 'flex',
+              gap: '4px',
+              flexWrap: 'nowrap',
+              padding: '6px',
+              backgroundColor: '#F8F9FA',
+              borderRadius: '8px',
+              border: '1px solid #E5E7EB',
+              overflowX: 'auto'
+            }}>
+              {categories.map((category) => {
+                const IconComponent = category.icon;
+                const isSelected = selectedCategory === category.id;
+                return (
+                  <button
+                    key={category.id}
+                    onClick={() => setSelectedCategory(isSelected ? '' : category.id)}
+                    style={{
+                      fontSize: '9px',
+                      padding: '4px 6px',
+                      borderRadius: '6px',
+                      border: isSelected ? 'none' : '1px solid #D1D5DB',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '2px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      backgroundColor: isSelected ?
+                        'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' :
+                        'white',
+                      background: isSelected ?
+                        'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' :
+                        'white',
+                      color: isSelected ? 'white' : '#6B7280',
+                      fontWeight: isSelected ? '500' : '400',
+                      boxShadow: isSelected ?
+                        '0 2px 4px rgba(102, 126, 234, 0.2)' :
+                        '0 1px 2px rgba(0, 0, 0, 0.05)',
+                      minWidth: 'fit-content',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    <IconComponent style={{ width: '10px', height: '10px' }} />
+                    <span>{category.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 项目标签选择器 */}
+          <div style={{ marginBottom: '10px' }}>
+            <div style={{
+              fontSize: '10px',
+              color: '#6B7280',
+              marginBottom: '4px',
+              fontWeight: '500'
+            }}>项目：</div>
+
+            {!isCreatingProject ? (
+              <select
+                value={selectedProject}
+                onChange={(e) => {
+                  if (e.target.value === '__CREATE_NEW__') {
+                    setIsCreatingProject(true);
+                    setSelectedProject('');
+                  } else {
+                    setSelectedProject(e.target.value);
+                  }
+                }}
+                style={{
+                  fontSize: '9px',
+                  padding: '4px 6px',
+                  borderRadius: '6px',
+                  border: '1px solid #D1D5DB',
+                  backgroundColor: 'white',
+                  color: '#6B7280',
+                  fontWeight: '400',
+                  cursor: 'pointer',
+                  width: '100%',
+                  outline: 'none'
+                }}
+              >
+                <option value="">选择项目...</option>
+                {availableProjects.map((project) => (
+                  <option key={project} value={project}>
+                    {project}
+                  </option>
+                ))}
+                <option value="__CREATE_NEW__" style={{ color: '#3B82F6', fontWeight: 'bold' }}>
+                  + 新增项目
+                </option>
+              </select>
+            ) : (
+              <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  placeholder="输入项目名称..."
+                  style={{
+                    flex: 1,
+                    fontSize: '9px',
+                    padding: '4px 6px',
+                    borderRadius: '6px',
+                    border: '2px solid #3B82F6',
+                    backgroundColor: 'white',
+                    color: '#374151',
+                    fontWeight: '400',
+                    outline: 'none'
+                  }}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleCreateProject();
+                    } else if (e.key === 'Escape') {
+                      setIsCreatingProject(false);
+                      setNewProjectName('');
+                    }
+                  }}
+                />
+                <button
+                  onClick={handleCreateProject}
+                  disabled={!newProjectName.trim()}
+                  style={{
+                    fontSize: '8px',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    backgroundColor: newProjectName.trim() ? '#3B82F6' : '#D1D5DB',
+                    color: 'white',
+                    cursor: newProjectName.trim() ? 'pointer' : 'not-allowed',
+                    fontWeight: '500'
+                  }}
+                >
+                  确定
+                </button>
+                <button
+                  onClick={() => {
+                    setIsCreatingProject(false);
+                    setNewProjectName('');
+                  }}
+                  style={{
+                    fontSize: '8px',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    border: '1px solid #D1D5DB',
+                    backgroundColor: 'white',
+                    color: '#6B7280',
+                    cursor: 'pointer',
+                    fontWeight: '400'
+                  }}
+                >
+                  取消
+                </button>
+              </div>
+            )}
+          </div>
+
           <div style={{
             display: 'flex',
             gap: '8px',
             alignItems: 'flex-end'
           }}>
-            <input
+            <textarea
               ref={inputRef}
-              type="text"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              onKeyPress={handleKeyPress}
+              onKeyDown={handleKeyDown}
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
-              placeholder="输入消息..."
+              placeholder="输入消息... (Enter发送，Shift+Enter换行)"
+              rows={1}
               style={{
                 flex: 1,
-                padding: '8px 12px',
-                border: isFocused ? '2px solid #007AFF' : '1px solid #D1D5DB',
-                borderRadius: '20px',
-                fontSize: '14px',
+                padding: '10px 14px',
+                border: isFocused ?
+                  '2px solid transparent' :
+                  '1px solid #E5E7EB',
+                borderRadius: '12px',
+                fontSize: '12px',
                 outline: 'none',
                 resize: 'none',
                 fontFamily: 'inherit',
-                transition: 'border-color 0.2s'
+                transition: 'all 0.2s',
+                minHeight: '38px',
+                maxHeight: '100px', // 调整相应的最大高度
+                overflow: 'hidden',
+                whiteSpace: 'pre-wrap',
+                wordWrap: 'break-word',
+                lineHeight: '1.4',
+                backgroundColor: '#F8F9FA',
+                boxShadow: isFocused ?
+                  '0 0 0 2px rgba(102, 126, 234, 0.2), 0 2px 4px rgba(0, 0, 0, 0.1)' :
+                  '0 1px 3px rgba(0, 0, 0, 0.05)'
               }}
             />
             <button
               onClick={handleSendMessage}
               disabled={!inputText.trim() || isTyping}
               style={{
-                backgroundColor: (!inputText.trim() || isTyping) ? '#D1D5DB' : '#007AFF',
+                background: (!inputText.trim() || isTyping) ?
+                  '#D1D5DB' :
+                  'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                 color: 'white',
                 border: 'none',
-                borderRadius: '20px',
-                width: '36px',
-                height: '36px',
+                borderRadius: '14px',
+                width: '44px',
+                height: '44px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: (!inputText.trim() || isTyping) ? 'not-allowed' : 'pointer',
-                transition: 'all 0.2s'
+                transition: 'all 0.2s',
+                boxShadow: (!inputText.trim() || isTyping) ?
+                  'none' :
+                  '0 2px 8px rgba(102, 126, 234, 0.3)',
+                transform: (!inputText.trim() || isTyping) ? 'none' : 'translateY(-1px)'
               }}
             >
               <Send size={16} />
@@ -543,7 +821,7 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: 'rgba(255, 255, 255, 0.1)',
+      backgroundColor: 'transparent',
       borderRadius: '50%'
     }}>
       <button
