@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
-import { MessageCircle, Send, Minimize2, Trash2, ListChecks, AlertCircle, Lightbulb, Heart, FileText } from 'lucide-react';
+import { MessageCircle, Send, Minimize2, Trash2, ListChecks, AlertCircle, Lightbulb, Heart, FileText, X } from 'lucide-react';
 
 interface FloatingButtonProps {
   onPositionChange?: (x: number, y: number) => void;
@@ -72,6 +72,49 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
     loadAvailableProjects();
   }, []);
 
+  // 检查并调整窗口位置以确保在屏幕边界内
+  const adjustWindowPosition = useCallback((isExpanding: boolean) => {
+    const screenWidth = window.screen.availWidth;
+    const screenHeight = window.screen.availHeight;
+    const screenLeft = (window.screen as any).availLeft || 0;
+    const screenTop = (window.screen as any).availTop || 0;
+
+    const currentX = window.screenX || 0;
+    const currentY = window.screenY || 0;
+
+    const windowWidth = isExpanding ? 350 : 60;
+    const windowHeight = isExpanding ? 500 : 60;
+
+    // 计算调整后的位置
+    let newX = currentX;
+    let newY = currentY;
+
+    // 如果窗口会超出右边界，向左调整
+    if (currentX + windowWidth > screenLeft + screenWidth) {
+      newX = screenLeft + screenWidth - windowWidth;
+    }
+
+    // 如果窗口会超出下边界，向上调整
+    if (currentY + windowHeight > screenTop + screenHeight) {
+      newY = screenTop + screenHeight - windowHeight;
+    }
+
+    // 确保不会超出左边界和上边界
+    newX = Math.max(screenLeft, newX);
+    newY = Math.max(screenTop, newY);
+
+    // 如果需要调整位置，先移动窗口再调整大小
+    if (newX !== currentX || newY !== currentY) {
+      (window as any).electronAPI?.moveFloatingWindow?.(newX, newY);
+      // 稍微延迟调整大小，确保位置调整完成
+      setTimeout(() => {
+        (window as any).electronAPI?.resizeFloatingWindow?.(windowWidth, windowHeight);
+      }, 50);
+    } else {
+      (window as any).electronAPI?.resizeFloatingWindow?.(windowWidth, windowHeight);
+    }
+  }, []);
+
   // 自动滚动到最底部，优化以减少重渲染
   useEffect(() => {
     if (!messagesEndRef.current || messages.length === 0) return;
@@ -87,11 +130,26 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
 
   // 监听主进程发来的展开事件，快捷键 Option+N 直接进入聊天模式
   useEffect(() => {
-    const handler = () => setIsExpanded(true);
+    const handler = () => {
+      console.log('FloatingButton: 收到展开事件');
+      setIsExpanded(true);
+      // 直接调整窗口大小到聊天界面
+      adjustWindowPosition(true);
+    };
     const unsubscribe = (window as any).electronAPI?.onExpandFloatingWindow?.(handler);
+    console.log('FloatingButton: 已注册展开事件监听器');
     return () => {
       (window as any).electronAPI?.removeExpandFloatingWindowListener?.(unsubscribe);
     };
+  }, [adjustWindowPosition]);
+
+  // 检查窗口是否需要初始展开 - 简单的解决方案
+  useEffect(() => {
+    // 如果窗口宽度大于100px，说明是通过快捷键展开打开的
+    if (window.innerWidth > 100) {
+      console.log('FloatingButton: 检测到大窗口，自动展开');
+      setIsExpanded(true);
+    }
   }, []);
 
   // 检测消息类型
@@ -186,14 +244,23 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
       // 智能标签识别
       const smartTags = parseSmartTags(content);
 
+      // 合并所有标签：智能标签 + 项目标签
+      const allTags = [...smartTags];
+      if (selectedProject) {
+        // 确保项目标签不重复
+        if (!allTags.includes(selectedProject)) {
+          allTags.push(selectedProject);
+        }
+      }
+
       // 使用用户选择的分类作为类型提示
       const type_hint = selectedCategory || undefined;
 
       const result = await (window as any).electronAPI?.createNote({
         text: content,
         type_hint,
-        tags: smartTags,
-        project_tag: selectedProject || undefined
+        tags: allTags.length > 0 ? allTags : undefined,
+        project_tag: selectedProject || undefined  // 保持向后兼容
       });
 
       if (result?.success) {
@@ -296,12 +363,15 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
     let responseText = '';
     let recordCreated = false;
 
+    // 如果要创建记录且选择了项目标签，在回复中明确说明
+    const selectedProjectInfo = selectedProject ? `【项目：${selectedProject}】` : '';
+
     try {
       if (shouldCreateRecord) {
         // 用户选择了待办分类 - 创建记录
         recordCreated = await createNoteFromChat(currentInput);
         if (recordCreated) {
-          responseText = '✅ 我已为您创建了这个待办记录，您可以在"我的记录"中查看和管理。';
+          responseText = `✅ 我已为您创建了这个待办记录${selectedProjectInfo}，您可以在"我的记录"中查看和管理。`;
         } else {
           responseText = '⚠️ 创建待办记录时遇到问题，请您手动在主应用中添加。';
         }
@@ -344,50 +414,11 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
     }
   };
 
-
-
-  // 检查并调整窗口位置以确保在屏幕边界内
-  const adjustWindowPosition = (isExpanding: boolean) => {
-    const screenWidth = window.screen.availWidth;
-    const screenHeight = window.screen.availHeight;
-    const screenLeft = (window.screen as any).availLeft || 0;
-    const screenTop = (window.screen as any).availTop || 0;
-
-    const currentX = window.screenX || 0;
-    const currentY = window.screenY || 0;
-
-    const windowWidth = isExpanding ? 350 : 60;
-    const windowHeight = isExpanding ? 500 : 60;
-
-    // 计算调整后的位置
-    let newX = currentX;
-    let newY = currentY;
-
-    // 如果窗口会超出右边界，向左调整
-    if (currentX + windowWidth > screenLeft + screenWidth) {
-      newX = screenLeft + screenWidth - windowWidth;
-    }
-
-    // 如果窗口会超出下边界，向上调整
-    if (currentY + windowHeight > screenTop + screenHeight) {
-      newY = screenTop + screenHeight - windowHeight;
-    }
-
-    // 确保不会超出左边界和上边界
-    newX = Math.max(screenLeft, newX);
-    newY = Math.max(screenTop, newY);
-
-    // 如果需要调整位置，先移动窗口再调整大小
-    if (newX !== currentX || newY !== currentY) {
-      (window as any).electronAPI?.moveFloatingWindow?.(newX, newY);
-      // 稍微延迟调整大小，确保位置调整完成
-      setTimeout(() => {
-        (window as any).electronAPI?.resizeFloatingWindow?.(windowWidth, windowHeight);
-      }, 50);
-    } else {
-      (window as any).electronAPI?.resizeFloatingWindow?.(windowWidth, windowHeight);
-    }
-  };
+  // 隐藏浮窗
+  const handleHideWindow = useCallback(() => {
+    console.log('FloatingButton: 隐藏浮窗');
+    (window as any).electronAPI?.hideFloatingWindow?.();
+  }, []);
 
   const handleClick = useCallback(() => {
     console.log('FloatingButton: 点击按钮');
@@ -419,7 +450,9 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         position: 'relative',
         zIndex: 999,
-        border: '1px solid rgba(0,122,255,0.1)'
+        border: '1px solid rgba(0,122,255,0.1)',
+        overflow: 'hidden',
+        minHeight: '400px'
       }}>
         {/* Header */}
         <div
@@ -434,7 +467,13 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
             backgroundColor: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
             background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
             cursor: 'grab',
-            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+            height: '68px',
+            minHeight: '68px',
+            maxHeight: '68px',
+            flexShrink: 0,
+            flexGrow: 0,
+            flex: '0 0 auto'
           }}>
           <div style={{
             display: 'flex',
@@ -500,19 +539,39 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
             >
               <Minimize2 size={16} />
             </button>
+            <button
+              onClick={handleHideWindow}
+              style={{
+                background: 'rgba(255, 255, 255, 0.2)',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '6px',
+                borderRadius: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                color: 'white',
+                transition: 'all 0.2s',
+                opacity: '0.8'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+              onMouseLeave={(e) => e.currentTarget.style.opacity = '0.8'}
+              title="隐藏浮窗 (Option+Shift+N)"
+            >
+              <X size={14} />
+            </button>
           </div>
         </div>
 
         {/* Messages Area */}
         <div className="messages-area" style={{
-          flex: 1,
+          flex: '1 1 auto',
           overflowY: 'auto',
           overflowX: 'hidden',
           padding: '16px 20px',
           display: 'flex',
           flexDirection: 'column',
           gap: '12px',
-          maxHeight: '320px', // 限制最大高度确保滚动正常工作
+          minHeight: 0,
           scrollBehavior: 'smooth',
           backgroundColor: '#F8F9FA'
         }}>
@@ -574,7 +633,11 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
           padding: '16px 20px 20px 20px',
           borderTop: '1px solid #E5E7EB',
           borderRadius: '0 0 12px 12px',
-          backgroundColor: 'white'
+          backgroundColor: 'white',
+          flexShrink: 0,
+          flexGrow: 0,
+          flex: '0 0 auto',
+          minHeight: 'auto'
         }}>
           {/* 分类选择器 */}
           <div style={{ marginBottom: '10px' }}>
@@ -743,6 +806,52 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
               </div>
             )}
           </div>
+
+          {/* 标签预览 */}
+          {(selectedProject || parseSmartTags(inputText).length > 0) && (
+            <div style={{
+              fontSize: '9px',
+              color: '#6B7280',
+              marginBottom: '6px',
+              padding: '4px 8px',
+              backgroundColor: '#F3F4F6',
+              borderRadius: '6px',
+              border: '1px solid #E5E7EB'
+            }}>
+              <span style={{ fontWeight: '500', marginRight: '4px' }}>
+                将添加标签：
+              </span>
+              {selectedProject && (
+                <span style={{
+                  backgroundColor: '#3B82F6',
+                  color: 'white',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  marginRight: '4px',
+                  fontSize: '8px',
+                  fontWeight: '500'
+                }}>
+                  📁 {selectedProject}
+                </span>
+              )}
+              {parseSmartTags(inputText).map((tag, index) => (
+                <span
+                  key={index}
+                  style={{
+                    backgroundColor: '#10B981',
+                    color: 'white',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '4px',
+                    fontSize: '8px',
+                    fontWeight: '500'
+                  }}
+                >
+                  # {tag}
+                </span>
+              ))}
+            </div>
+          )}
 
           <div style={{
             display: 'flex',
