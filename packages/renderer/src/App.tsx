@@ -112,14 +112,9 @@ function App() {
       {/* 侧边栏 */}
       <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
         <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Flowpad</h1>
-              <p className="text-sm text-gray-600 mt-1">AI记事本</p>
-            </div>
-            <div className="text-xs text-gray-400 font-mono bg-gray-50 px-2 py-1 rounded">
-              v2.0.1-stable
-            </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Flowpad</h1>
+            <p className="text-sm text-gray-600 mt-1">AI记事本</p>
           </div>
         </div>
 

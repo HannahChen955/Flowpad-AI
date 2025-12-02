@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Key, Zap, Shield, CheckCircle, AlertCircle, Monitor } from 'lucide-react';
+import { Save, Key, Zap, Shield, CheckCircle, AlertCircle, Monitor, Keyboard } from 'lucide-react';
 import { AIConfig } from '../../../core/src/index';
 
 const SettingsPanel: React.FC = () => {
@@ -314,6 +314,65 @@ const SettingsPanel: React.FC = () => {
                   <div>• <kbd className="px-1 py-0.5 bg-blue-100 rounded text-xs">⌥ + M</kbd> 显示主窗口</div>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 快捷键列表 */}
+        <div className="card p-6">
+          <div className="flex items-center space-x-2 mb-4">
+            <Keyboard className="w-5 h-5 text-purple-600" />
+            <h4 className="text-lg font-semibold text-gray-900">快捷键</h4>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* 主要功能快捷键 */}
+            <div className="space-y-3">
+              <h5 className="text-sm font-semibold text-gray-700 mb-2">主要功能</h5>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                  <span className="text-sm text-gray-700">快速记录</span>
+                  <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">⌥ + N</kbd>
+                </div>
+                <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                  <span className="text-sm text-gray-700">显示主窗口</span>
+                  <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">⌥ + M</kbd>
+                </div>
+                <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                  <span className="text-sm text-gray-700">今日总结</span>
+                  <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">⌥ + D</kbd>
+                </div>
+              </div>
+            </div>
+
+            {/* 窗口控制快捷键 */}
+            <div className="space-y-3">
+              <h5 className="text-sm font-semibold text-gray-700 mb-2">窗口控制</h5>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                  <span className="text-sm text-gray-700">切换浮窗</span>
+                  <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">⌥ + T</kbd>
+                </div>
+                <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                  <span className="text-sm text-gray-700">隐藏浮窗</span>
+                  <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">⌥ + ⇧ + N</kbd>
+                </div>
+                <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                  <span className="text-sm text-gray-700">隐藏所有窗口</span>
+                  <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">⌥ + H</kbd>
+                </div>
+                <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                  <span className="text-sm text-gray-700">退出应用</span>
+                  <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">⌥ + Q</kbd>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="text-sm text-amber-800">
+              <div className="font-medium mb-1">注意事项：</div>
+              <div>如果快捷键不生效，请在 <strong>系统偏好设置 &gt; 安全性与隐私 &gt; 隐私 &gt; 辅助功能</strong> 中添加Flowpad权限。</div>
             </div>
           </div>
         </div>
