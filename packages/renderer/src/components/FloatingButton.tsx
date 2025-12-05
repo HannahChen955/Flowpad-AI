@@ -14,7 +14,11 @@ interface Message {
 }
 
 const FloatingButton: React.FC<FloatingButtonProps> = () => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  // 根据窗口大小判断初始展开状态，实现状态持久化
+  const [isExpanded, setIsExpanded] = useState(() => {
+    const isLargeWindow = window.innerWidth > 100 && window.innerHeight > 100;
+    return isLargeWindow;
+  });
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -130,44 +134,26 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
 
   // 监听主进程发来的展开事件，快捷键 Option+N 直接进入聊天模式
   useEffect(() => {
-    console.log('FloatingButton: 开始注册展开事件监听器');
-    console.log('FloatingButton: electronAPI可用性:', {
-      electronAPI: typeof (window as any).electronAPI,
-      onExpandFloatingWindow: typeof (window as any).electronAPI?.onExpandFloatingWindow,
-      removeExpandFloatingWindowListener: typeof (window as any).electronAPI?.removeExpandFloatingWindowListener
-    });
-
     const handler = () => {
-      console.log('FloatingButton: 收到展开事件 - 开始执行展开逻辑');
-      console.log('FloatingButton: 当前状态 - isExpanded:', isExpanded);
       setIsExpanded(true);
-      console.log('FloatingButton: 已设置 isExpanded = true');
-      // 直接调整窗口大小到聊天界面
+      // 调用窗口调整
       adjustWindowPosition(true);
-      console.log('FloatingButton: 已调用 adjustWindowPosition(true)');
     };
 
     if ((window as any).electronAPI?.onExpandFloatingWindow) {
       const unsubscribe = (window as any).electronAPI.onExpandFloatingWindow(handler);
-      console.log('FloatingButton: 展开事件监听器注册成功，unsubscribe:', typeof unsubscribe);
       return () => {
-        console.log('FloatingButton: 开始清理展开事件监听器');
         (window as any).electronAPI?.removeExpandFloatingWindowListener?.(unsubscribe);
       };
     } else {
-      console.error('FloatingButton: electronAPI.onExpandFloatingWindow 不可用！');
+      console.error('FloatingButton: electronAPI 展开事件监听器不可用');
       return () => {};
     }
-  }, [adjustWindowPosition]);
-
-  // 检查窗口是否需要初始展开 - 简单的解决方案
-  useEffect(() => {
-    // 如果窗口宽度大于100px，说明是通过快捷键展开打开的
-    if (window.innerWidth > 100) {
-      console.log('FloatingButton: 检测到大窗口，自动展开');
-      setIsExpanded(true);
-    }
+    // 移除 adjustWindowPosition 依赖，避免不必要的重新注册
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 窗口大小检查已移至 useState 初始化器中，避免额外的 effect
 
   // 检测消息类型
   const detectMessageType = (text: string): 'question' | 'task' | 'other' => {
@@ -453,20 +439,14 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
     }
   }, [isExpanded]);
 
-  // 添加组件状态调试
+  // 组件状态变化日志（仅在开发环境）
   useEffect(() => {
-    console.log('FloatingButton: 组件状态变化 - isExpanded:', isExpanded);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('FloatingButton: 状态变化 - isExpanded:', isExpanded);
+    }
   }, [isExpanded]);
 
-  useEffect(() => {
-    console.log('FloatingButton: 组件挂载完成');
-    return () => {
-      console.log('FloatingButton: 组件即将卸载');
-    };
-  }, []);
-
   if (isExpanded) {
-    console.log('FloatingButton: 渲染展开状态');
     return (
       <div
         className="floating-button"
@@ -956,7 +936,6 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
   }
 
   // 收起状态 - 显示蓝色圆形按钮
-  console.log('FloatingButton: 渲染收起状态');
   return (
     <div
       className="floating-button"

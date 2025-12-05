@@ -747,7 +747,7 @@ class FlowpadApp {
         } catch (error) {
           safeLogger.error('showFloatingWindowExpanded: 展开浮窗失败:', error);
         }
-      }, 500); // 增加延迟确保浮窗React组件完全初始化
+      }, 1000); // 增加延迟到1秒，确保React组件完全初始化和事件监听器注册
     }
   }
 
