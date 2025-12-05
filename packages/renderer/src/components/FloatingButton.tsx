@@ -130,17 +130,34 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
 
   // 监听主进程发来的展开事件，快捷键 Option+N 直接进入聊天模式
   useEffect(() => {
+    console.log('FloatingButton: 开始注册展开事件监听器');
+    console.log('FloatingButton: electronAPI可用性:', {
+      electronAPI: typeof (window as any).electronAPI,
+      onExpandFloatingWindow: typeof (window as any).electronAPI?.onExpandFloatingWindow,
+      removeExpandFloatingWindowListener: typeof (window as any).electronAPI?.removeExpandFloatingWindowListener
+    });
+
     const handler = () => {
-      console.log('FloatingButton: 收到展开事件');
+      console.log('FloatingButton: 收到展开事件 - 开始执行展开逻辑');
+      console.log('FloatingButton: 当前状态 - isExpanded:', isExpanded);
       setIsExpanded(true);
+      console.log('FloatingButton: 已设置 isExpanded = true');
       // 直接调整窗口大小到聊天界面
       adjustWindowPosition(true);
+      console.log('FloatingButton: 已调用 adjustWindowPosition(true)');
     };
-    const unsubscribe = (window as any).electronAPI?.onExpandFloatingWindow?.(handler);
-    console.log('FloatingButton: 已注册展开事件监听器');
-    return () => {
-      (window as any).electronAPI?.removeExpandFloatingWindowListener?.(unsubscribe);
-    };
+
+    if ((window as any).electronAPI?.onExpandFloatingWindow) {
+      const unsubscribe = (window as any).electronAPI.onExpandFloatingWindow(handler);
+      console.log('FloatingButton: 展开事件监听器注册成功，unsubscribe:', typeof unsubscribe);
+      return () => {
+        console.log('FloatingButton: 开始清理展开事件监听器');
+        (window as any).electronAPI?.removeExpandFloatingWindowListener?.(unsubscribe);
+      };
+    } else {
+      console.error('FloatingButton: electronAPI.onExpandFloatingWindow 不可用！');
+      return () => {};
+    }
   }, [adjustWindowPosition]);
 
   // 检查窗口是否需要初始展开 - 简单的解决方案
@@ -436,13 +453,29 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
     }
   }, [isExpanded]);
 
+  // 添加组件状态调试
+  useEffect(() => {
+    console.log('FloatingButton: 组件状态变化 - isExpanded:', isExpanded);
+  }, [isExpanded]);
+
+  useEffect(() => {
+    console.log('FloatingButton: 组件挂载完成');
+    return () => {
+      console.log('FloatingButton: 组件即将卸载');
+    };
+  }, []);
+
   if (isExpanded) {
-    // Render expanded state - removed console.log to prevent re-render spam
+    console.log('FloatingButton: 渲染展开状态');
     return (
-      <div style={{
-        width: '100%',
-        height: '100%',
-        backgroundColor: 'white',
+      <div
+        className="floating-button"
+        data-floating-button="expanded"
+        data-expanded={true}
+        style={{
+          width: '100%',
+          height: '100%',
+          backgroundColor: 'white',
         borderRadius: '12px',
         boxShadow: '0 8px 32px rgba(0,122,255,0.2)',
         display: 'flex',
@@ -922,17 +955,22 @@ const FloatingButton: React.FC<FloatingButtonProps> = () => {
     );
   }
 
-  // 收起状态 - 显示蓝色圆形按钮 - removed console.log to prevent re-render spam
+  // 收起状态 - 显示蓝色圆形按钮
+  console.log('FloatingButton: 渲染收起状态');
   return (
-    <div style={{
-      width: '100%',
-      height: '100%',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: 'transparent',
-      borderRadius: '50%'
-    }}>
+    <div
+      className="floating-button"
+      data-floating-button="collapsed"
+      data-expanded={false}
+      style={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'transparent',
+        borderRadius: '50%'
+      }}>
       <button
         onClick={handleClick}
         style={{
